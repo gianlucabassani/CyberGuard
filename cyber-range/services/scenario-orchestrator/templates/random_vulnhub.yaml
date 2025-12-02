@@ -1,0 +1,35 @@
+name: random_vulnhub
+version: "1.0"
+difficulty: medium
+description: Random VulnHub scenario with dynamically selected vulnerable images
+
+network:
+  cidr: "10.0.2.0/24"
+  name: vulnhub_network
+  topology: "Simple: Attacker + Random Victim"
+
+vms:
+  - name: attacker
+    role: attacker
+    image: "kali-rolling-2024"
+    disk_gb: 20
+    public_ip: true
+    ram_gb: 4
+    vcpus: 2
+
+  - name: victim
+    role: victim
+    image: "vulnhub-random"
+    disk_gb: 30
+    public_ip: true
+    ram_gb: 2
+    vcpus: 2
+
+metadata:
+  description: "Dynamically generated scenario using random VulnHub images"
+  learning_objectives:
+    - "Work with unexpected vulnerable targets"
+    - "Adapt exploitation techniques"
+  tags: ["vulnhub", "random", "practice"]
+  max_users: 2
+  estimated_duration_hours: 4

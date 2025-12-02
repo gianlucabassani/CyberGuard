@@ -1,0 +1,358 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="font-tech text-white mb-0">
+            MISSION CONTROL: <span class="text-info">{{ instance_id }}</span>
+            <span class="badge bg-success align-middle ms-2">ONLINE</span>
+        </h2>
+        <p class="text-muted small text-monospace mb-0">
+            <i class="fa-solid fa-server me-1"></i> OpenStack RegionOne
+        </p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/" class="btn btn-outline-light font-mono">
+            <i class="fa-solid fa-arrow-left me-1"></i> LOBBY
+        </a>
+        <button onclick="destroyInstance('{{ instance_id }}')" class="btn btn-danger font-tech tracking-wide">
+            <i class="fa-solid fa-bomb me-2"></i>DESTROY
+        </button>
+    </div>
+</div>
+
+<div class="row g-4 h-100">
+    
+    <div class="col-lg-4 d-flex flex-column gap-3">
+        
+        <div class="card border-info shadow-lg bg-dark-glass">
+            <div class="card-header bg-transparent border-info d-flex justify-content-between align-items-center">
+                <span class="text-info fw-bold font-tech"><i class="fa-solid fa-shield-halved me-2"></i>BLUE TEAM</span>
+                <span class="badge bg-info text-dark">DEFENDER</span>
+            </div>
+            <div class="card-body">
+                
+                {% if status.soc_dashboard_url %}
+                <a href="{{ status.soc_dashboard_url }}" target="_blank" class="btn btn-info w-100 mb-3 fw-bold font-tech">
+                    <i class="fa-solid fa-chart-line me-2"></i> OPEN WAZUH
+                </a>
+                {% else %}
+                <button disabled class="btn btn-secondary w-100 mb-3">PROVISIONING...</button>
+                {% endif %}
+                
+                <div class="small font-mono text-muted mb-2">CREDENTIALS</div>
+                <div class="bg-dark rounded p-2 border border-secondary mb-3">
+                    <div class="d-flex justify-content-between">
+                        <span>User:</span> <span class="text-info">{{ status.soc_credentials.username }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>Pass:</span> <span class="text-info">{{ status.soc_credentials.password }}</span>
+                    </div>
+                </div>
+
+                <label class="text-muted small text-monospace mb-1">SSH SOC COMMAND</label>
+                <div class="input-group input-group-sm mb-3">
+                    <span class="input-group-text bg-dark border-secondary"><i class="fa-solid fa-terminal text-info"></i></span>
+                    <input type="text" class="form-control font-mono bg-dark text-light border-secondary" value="{{ status.log_vm_ssh_command }}" readonly id="ssh-soc">
+                    <button class="btn btn-dark border-secondary" onclick="copyToClipboard('ssh-soc')"><i class="fa-regular fa-copy"></i></button>
+                </div>
+
+                <hr class="border-secondary my-3 opacity-50">
+
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="small font-mono text-muted text-uppercase fw-bold">
+                        <i class="fa-solid fa-server me-1"></i> Target System
+                    </span>
+                    <span class="badge bg-warning text-dark" style="font-size: 0.65rem;">VICTIM</span>
+                </div>
+                
+                <div class="row small">
+                    <div class="col-6">
+                        <small class="text-muted d-block" style="font-size:0.7rem">PUBLIC IP</small>
+                        <span class="fs-6 fw-bold text-white">{{ status.victim_vm_floating_ip or '...' }}</span>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted d-block" style="font-size:0.7rem">PRIVATE IP</small>
+                        <span class="font-mono text-info">{{ status.victim_vm_private_ip or '...' }}</span>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="card border-danger shadow-lg bg-dark-glass">
+            <div class="card-header bg-transparent border-danger d-flex justify-content-between align-items-center">
+                <span class="text-danger fw-bold font-tech"><i class="fa-solid fa-user-ninja me-2"></i>RED TEAM</span>
+                <span class="badge bg-danger">ATTACKER</span>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <small class="text-muted d-block" style="font-size:0.7rem">PUBLIC IP</small>
+                        <span class="fs-5 fw-bold text-white">{{ status.attack_vm_floating_ip or '...' }}</span>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted d-block" style="font-size:0.7rem">PRIVATE IP</small>
+                        <span class="font-mono text-danger">{{ status.attack_vm_private_ip or '...' }}</span>
+                    </div>
+                </div>
+                
+                <label class="text-muted small text-monospace mb-1">SSH ATTACK COMMAND</label>
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-dark border-secondary"><i class="fa-solid fa-terminal text-danger"></i></span>
+                    <input type="text" class="form-control font-mono bg-dark text-light border-secondary" value="{{ status.attack_vm_ssh_command }}" readonly id="ssh-attack">
+                    <button class="btn btn-dark border-secondary" onclick="copyToClipboard('ssh-attack')"><i class="fa-regular fa-copy"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card h-100 shadow-lg border-0">
+            <div class="card-header bg-white border-bottom py-2 d-flex justify-content-between align-items-center">
+                <span class="font-tech text-dark fw-bold" style="letter-spacing: 1px;">
+                    <i class="fa-solid fa-sitemap me-2 text-primary"></i>INFRASTRUCTURE MAP
+                </span>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="cy.fit()"><i class="fa-solid fa-compress"></i> Fit</button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+                </div>
+            </div>
+            
+            <div class="card-body p-0 position-relative" style="background-color: #fafafa;">
+                <div style="position: absolute; width: 100%; height: 100%; background-image: linear-gradient(#e0e0e0 1px, transparent 1px), linear-gradient(90deg, #e0e0e0 1px, transparent 1px); background-size: 20px 20px;"></div>
+                
+                <div id="cy" style="width: 100%; height: 600px; display: block;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script id="lab-data-source" type="application/json">
+    {{ status | tojson | safe }}
+</script>
+
+<script>
+    document.body.setAttribute('data-instance-id', '{{ instance_id }}');
+    
+    // Parsing dei dati sicuro
+    var LAB_DATA = {};
+    try {
+        var rawData = document.getElementById('lab-data-source').textContent;
+        LAB_DATA = JSON.parse(rawData);
+    } catch (e) { console.error("Parsing Error", e); }
+
+    var cy = null;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        if(!document.getElementById('cy')) return;
+
+        var elements = [];
+
+        // --- 1. INFRASTRUTTURA ---
+
+        // PUBLIC INTERNET (Mondo)
+        elements.push({ 
+            data: { id: 'public', label: 'Internet', type: 'world' } 
+        });
+
+        // ROUTER CENTRALE
+        elements.push({ 
+            data: { id: 'router', label: 'Router GW', type: 'router' } 
+        });
+        
+        // RETE BLU (Main - 192.168.0.0/24)
+        elements.push({ 
+            data: { id: 'net_main', label: 'Network CyberGuard\n(192.168.0.0/24)', type: 'cloud_blue' } 
+        });
+
+        // RETE ROSSA (Attack - 192.168.50.0/24)
+        elements.push({ 
+            data: { id: 'net_attack', label: 'Network Attack\n(192.168.50.0/24)', type: 'cloud_red' } 
+        });
+
+        // Connessioni Router
+        elements.push({ data: { source: 'public', target: 'router' } });
+        elements.push({ data: { source: 'router', target: 'net_main' } });
+        elements.push({ data: { source: 'router', target: 'net_attack' } });
+
+
+        // --- 2. VIRTUAL MACHINES (PC) ---
+
+        // KALI LINUX (Attacker) - Su Rete Rossa
+        var kaliIp = LAB_DATA.attack_vm_private_ip || 'Provisioning...';
+        elements.push({ 
+            data: { id: 'vm_kali', label: 'Kali Linux\n' + kaliIp, type: 'pc_attacker' } 
+        });
+        elements.push({ data: { source: 'net_attack', target: 'vm_kali' } });
+
+        // SOC WAZUH (Defender) - Su Rete Blu
+        var socIp = LAB_DATA.log_vm_private_ip || 'Provisioning...';
+        elements.push({ 
+            data: { id: 'vm_soc', label: 'SOC / Wazuh\n' + socIp, type: 'pc_defender' } 
+        });
+        elements.push({ data: { source: 'net_main', target: 'vm_soc' } });
+
+        // VICTIM (Target) - Su Rete Blu
+        var victimIp = LAB_DATA.victim_vm_private_ip || 'Provisioning...';
+        elements.push({ 
+            data: { id: 'vm_victim', label: 'Mr. Robot\n' + victimIp, type: 'pc_defender' } 
+        });
+        elements.push({ data: { source: 'net_main', target: 'vm_victim' } });
+
+
+        // --- 3. CONFIGURAZIONE CYTOSCAPE ---
+        cy = cytoscape({
+            container: document.getElementById('cy'),
+            elements: elements,
+            
+            layout: {
+                name: 'cose', // Layout fisico organico
+                idealEdgeLength: 80,
+                nodeOverlap: 20,
+                refresh: 20,
+                fit: true,
+                padding: 50,
+                randomize: false,
+                componentSpacing: 100,
+                nodeRepulsion: 400000,
+                edgeElasticity: 100,
+                nestingFactor: 5,
+            },
+
+            style: [
+                // STILE GENERALE
+                {
+                    selector: 'node',
+                    style: {
+                        'font-family': '"Font Awesome 6 Free", "Font Awesome 6 Brands", sans-serif',
+                        'font-weight': '900',
+                        'label': 'data(label)',
+                        'text-valign': 'bottom',
+                        'text-halign': 'center',
+                        'text-margin-y': 6,
+                        'font-size': '11px',
+                        'color': '#333', 
+                        'text-wrap': 'wrap',
+                        'background-color': '#fff',
+                        'border-width': 0
+                    }
+                },
+                {
+                    selector: 'edge',
+                    style: {
+                        'width': 2,
+                        'line-color': '#adb5bd',
+                        'curve-style': 'bezier',
+                        'target-arrow-shape': 'none'
+                    }
+                },
+
+                // --- ICONE SPECIFICHE ---
+
+                // MONDO (Public)
+                {
+                    selector: 'node[type="world"]',
+                    style: {
+                        'content': '\uf0ac', // fa-globe
+                        'font-size': '30px',
+                        'color': '#6c757d',
+                        'text-valign': 'center'
+                    }
+                },
+
+                // ROUTER
+                {
+                    selector: 'node[type="router"]',
+                    style: {
+                        'content': '\uf233', // fa-server/router
+                        'shape': 'round-rectangle',
+                        'background-color': '#fff',
+                        'border-width': 2,
+                        'border-color': '#343a40',
+                        'width': '40px',
+                        'height': '40px',
+                        'text-valign': 'center',
+                        'color': '#343a40',
+                        'font-size': '20px'
+                    }
+                },
+
+                // NUVOLA BLU (Network Cyberguard)
+                {
+                    selector: 'node[type="cloud_blue"]',
+                    style: {
+                        'content': '\uf0c2', // fa-cloud
+                        'font-size': '60px',
+                        'color': '#3498db', // Blu
+                        'z-index': 1,
+                        'text-valign': 'center'
+                    }
+                },
+
+                // NUVOLA ROSSA (Network Attack)
+                {
+                    selector: 'node[type="cloud_red"]',
+                    style: {
+                        'content': '\uf0c2', // fa-cloud
+                        'font-size': '60px',
+                        'color': '#e74c3c', // Rosso
+                        'z-index': 1,
+                        'text-valign': 'center'
+                    }
+                },
+
+                // --- PC VM STYLING ---
+
+                // PC ATTACCANTE (Rosso)
+                {
+                    selector: 'node[type="pc_attacker"]',
+                    style: {
+                        'content': '\uf108', // fa-desktop (PC)
+                        'shape': 'rectangle',
+                        'background-color': '#fff',
+                        'border-width': 2,
+                        'border-color': '#dc3545', // Bordo Rosso
+                        'color': '#dc3545',        // Icona Rossa
+                        'width': '35px',
+                        'height': '35px',
+                        'font-size': '18px',
+                        'text-valign': 'center'
+                    }
+                },
+
+                // PC DIFENSORE/VITTIMA (Azzurro)
+                {
+                    selector: 'node[type="pc_defender"]',
+                    style: {
+                        'content': '\uf108', // fa-desktop (PC)
+                        'shape': 'rectangle',
+                        'background-color': '#fff',
+                        'border-width': 2,
+                        'border-color': '#0dcaf0', // Bordo Azzurro
+                        'color': '#0dcaf0',        // Icona Azzurra
+                        'width': '35px',
+                        'height': '35px',
+                        'font-size': '18px',
+                        'text-valign': 'center'
+                    }
+                }
+            ]
+        });
+
+        cy.resize();
+        cy.fit();
+    });
+
+    function copyToClipboard(elementId) {
+        var el = document.getElementById(elementId);
+        if(el) { el.select(); navigator.clipboard.writeText(el.value); }
+    }
+
+    function destroyInstance(id) {
+        if(confirm("Destroy lab?")) fetch(`/api/destroy/${id}`, {method:'POST'}).then(()=>window.location.href="/");
+    }
+</script>
+
+{% endblock %}

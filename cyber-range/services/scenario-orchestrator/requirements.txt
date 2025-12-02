@@ -1,0 +1,19 @@
+# Core dependencies - Minimal Phase 1
+pyyaml>=6.0
+python-dotenv>=0.21.0
+requests>=2.28.0
+openstacksdk>=1.0.0
+dotenv
+
+# Web API (Phase 2 - optional)
+fastapi>=0.95.0
+uvicorn[standard]>=0.21.0
+pydantic>=2.0.0
+flask
+bootstrap-flask
+
+# Additional utilities
+
+
+
+
