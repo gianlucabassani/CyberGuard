@@ -62,7 +62,7 @@ def run_destroy(instance_id):
 
 # --- ENDPOINTS ---
 
-@app.get("/deployments")
+@app.get("/")
 def list_deployments():
     """List all labs"""
     return get_db()
