@@ -17,7 +17,7 @@ app.conf.update(
     accept_content=['json'],
     result_serializer='json',
     task_track_started=True, # Allows tracking "started" state in addition to "pending/success"
-    worker_concurrency=4,    # Number of concurrent worker threads (CPU based)
+    worker_concurrency=4,    # Number of concurrent worker threads (CPU)
 )
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ def deploy_lab(self, instance_id, scenario_name, user_id, variables=None):
     # 1. Update DB: Set status to deploying
     db.update_deployment(instance_id, status="deploying")
     
-    # 2. Execute Deployment (Blocking operation within this worker thread)
+    # 2. Execute Deployment
     result = orch.deploy(scenario_name, instance_id, variables)
     
     # 3. Handle Result
@@ -67,8 +67,6 @@ def destroy_lab(instance_id):
     if result["success"]:
         db.update_deployment(instance_id, status="destroyed")
     else:
-        # If destroy fails, we record the error but keep the status as error_destroying
-        # so the admin knows manual intervention might be required
         db.update_deployment(instance_id, status="error_destroying", error=result["error"])
         
     return result

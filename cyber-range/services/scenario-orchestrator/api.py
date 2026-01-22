@@ -3,7 +3,7 @@ FastAPI REST Layer - Multi-Scenario Orchestrator API
 """
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any, List
+from typing import Dict, Any, Optional
 import json
 import os
 import logging
@@ -11,7 +11,7 @@ from orchestrator import Orchestrator
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("API")
 
 app = FastAPI(title="Cyber Range Orchestrator")
 orchestrator = Orchestrator()
@@ -39,21 +39,20 @@ def run_deploy(scenario_name: str, instance_id: str):
     res = orchestrator.deploy(scenario_name, instance_id)
     
     db = get_db()
-    if res["success"]:
-        db[instance_id]["status"] = "active"
-        db[instance_id]["outputs"] = res["outputs"]
-    else:
-        db[instance_id]["status"] = "failed"
-        db[instance_id]["error"] = res.get("error")
-    save_db(db)
+    # Update record
+    if instance_id in db:
+        if res["success"]:
+            db[instance_id]["status"] = "active"
+            db[instance_id]["outputs"] = res["outputs"]
+        else:
+            db[instance_id]["status"] = "failed"
+            db[instance_id]["error"] = res.get("error")
+        save_db(db)
 
 def run_destroy(instance_id):
     logger.info(f"Starting background destroy: {instance_id}")
-    
-    # 1. Try to destroy infrastructure (Best Effort)
     orchestrator.destroy(instance_id)
     
-    # 2. ALWAYS remove from Dashboard database
     db = get_db()
     if instance_id in db:
         del db[instance_id]
@@ -62,7 +61,7 @@ def run_destroy(instance_id):
 
 # --- ENDPOINTS ---
 
-@app.get("/")
+@app.get("/deployments")
 def list_deployments():
     """List all labs"""
     return get_db()
@@ -104,7 +103,18 @@ def get_status(instance_id: str):
     db = get_db()
     if instance_id not in db:
         raise HTTPException(404, "Instance not found")
-    return db[instance_id]
+    
+    data = db[instance_id]
+    
+    # --- CRITICAL FIX: Ensure outputs is Dict, not String ---
+    outputs = data.get("outputs", {})
+    if isinstance(outputs, str):
+        try:
+            data["outputs"] = json.loads(outputs)
+        except:
+            data["outputs"] = {}
+    
+    return data
 
 if __name__ == "__main__":
     import uvicorn

@@ -10,6 +10,7 @@ API_URL = os.getenv("ORCHESTRATOR_URL", "http://localhost:8000")
 def lobby():
     """Lobby: List all active scenarios"""
     try:
+        # Calls the Correct Endpoint /deployments
         resp = requests.get(f"{API_URL}/deployments", timeout=5)
         deployments = resp.json() if resp.status_code == 200 else {}
     except:
@@ -19,20 +20,18 @@ def lobby():
     return render_template('lobby.html', deployments=deployments)
 
 @app.route('/dashboard/<instance_id>')
-@app.route('/dashboard/<instance_id>')
 def dashboard(instance_id):
     """Specific Mission Control for one lab"""
     try:
         resp = requests.get(f"{API_URL}/status/{instance_id}", timeout=5)
         
-        # Se l'istanza non esiste o l'API dà errore, torna alla Lobby
         if resp.status_code != 200:
-            flash(f"Instance {instance_id} not found or API error.", "warning")
+            flash(f"Instance {instance_id} not found.", "warning")
             return redirect(url_for('lobby'))
         
         data = resp.json()
         
-        # Passiamo i dati al template dashboard.html
+        # Passes Dict to template (Fixed "str object" error)
         return render_template('dashboard.html', 
                              instance_id=instance_id,
                              status=data.get('outputs', {}), 
@@ -46,8 +45,15 @@ def create_lab():
     scenario = request.form.get('scenario')
     instance_id = request.form.get('instance_id')
     
-    # Call API
-    requests.post(f"{API_URL}/deploy", json={"scenario": scenario, "instance_id": instance_id})
+    # Calls Correct Endpoint /deploy with Correct Keys
+    try:
+        requests.post(f"{API_URL}/deploy", json={
+            "scenario": scenario, 
+            "instance_id": instance_id
+        }, timeout=5)
+    except Exception as e:
+        flash(f"Deploy failed: {e}", "danger")
+
     return redirect(url_for('lobby'))
 
 @app.route('/api/destroy/<instance_id>', methods=['POST'])
@@ -58,7 +64,7 @@ def destroy_lab(instance_id):
 @app.route('/api/poll/<instance_id>')
 def poll_status(instance_id):
     try:
-        resp = requests.get(f"{API_URL}/status/{instance_id}", timeout=10)
+        resp = requests.get(f"{API_URL}/status/{instance_id}", timeout=5)
         return jsonify(resp.json())
     except:
         return jsonify({"status": "offline"})

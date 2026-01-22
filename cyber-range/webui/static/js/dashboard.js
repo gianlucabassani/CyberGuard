@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log("Starting polling for instance:", instanceId);
             startPolling(instanceId);
             
-            // Initial Render if data exists
+            // Initial Render if data exists (LAB_DATA is injected by Jinja2 in dashboard.html)
             if (typeof LAB_DATA !== 'undefined' && LAB_DATA) {
                 renderTopology(LAB_DATA);
             }
@@ -30,7 +30,7 @@ function startPolling(instanceId) {
             .then(data => {
                 updateStatusUI(data);
 
-                // Se l'istanza è attiva ma il grafico non è inizializzato (es. refresh pagina), ricarica
+                // If instance becomes active but graph is empty (e.g. page refresh), reload to draw it
                 if (!cy && data.status === 'active') {
                     window.location.reload(); 
                 }
@@ -49,7 +49,7 @@ function updateStatusUI(data) {
         if(badge) badge.className = "badge rounded-pill bg-success border border-success shadow-sm";
         if(text) text.innerText = "ONLINE";
         if(spinner) spinner.classList.add('d-none');
-    } else if (data.status === 'deploying' || data.status === 'destroying') {
+    } else if (data.status === 'deploying' || data.status === 'destroying' || data.status === 'pending') {
         // WORKING
         if(badge) badge.className = "badge rounded-pill bg-warning text-dark border border-warning shadow-sm";
         if(text) text.innerText = data.status.toUpperCase();
@@ -79,10 +79,9 @@ function renderTopology(data) {
     elements.push({ data: { source: 'router', target: 'subnet' } });
 
     // 3. VM NODES
-    // FIX: Li aggiungiamo SEMPRE. Se manca l'IP, scriviamo "Provisioning..."
     
     // Attacker
-    let attackIp = data.attack_vm_floating_ip ? data.attack_vm_floating_ip : 'Provisioning...';
+    let attackIp = data.attacker_ip && data.attacker_ip.value ? data.attacker_ip.value : 'Provisioning...';
     elements.push({ 
         data: { 
             id: 'attacker', 
@@ -94,7 +93,7 @@ function renderTopology(data) {
     elements.push({ data: { source: 'subnet', target: 'attacker' } });
 
     // Monitor / SOC
-    let socIp = data.log_vm_floating_ip ? data.log_vm_floating_ip : 'Provisioning...';
+    let socIp = data.soc_ip && data.soc_ip.value ? data.soc_ip.value : 'Provisioning...';
     elements.push({ 
         data: { 
             id: 'soc', 
@@ -106,10 +105,11 @@ function renderTopology(data) {
     elements.push({ data: { source: 'subnet', target: 'soc' } });
 
     // Victim
+    let victimIp = data.victim_ip && data.victim_ip.value ? data.victim_ip.value : 'Provisioning...';
     elements.push({ 
         data: { 
             id: 'victim', 
-            label: 'Target VM', 
+            label: 'Target VM\n' + victimIp, 
             color: '#ffc107', 
             shape: 'round-rectangle' 
         } 
@@ -146,8 +146,7 @@ function renderTopology(data) {
                     'line-color': '#666',
                     'target-arrow-color': '#666',
                     'target-arrow-shape': 'triangle',
-                    'curve-style': 'bezier',
-                    'line-style': 'solid'
+                    'curve-style': 'bezier'
                 }
             }
         ],
@@ -160,7 +159,6 @@ function renderTopology(data) {
         }
     });
 
-    // FIX: Ridimensionamento forzato
     cy.resize();
     cy.fit();
 }
@@ -182,4 +180,4 @@ function destroyInstance(instanceId) {
         window.location.href = "/";
     })
     .catch(err => alert("Error: " + err));
-}
+}p
