@@ -142,7 +142,7 @@ services:
     environment:
       ORCHESTRATOR_URL: http://orchestrator:8000
       FLASK_ENV: ${FLASK_ENV:-production}
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      SECRET_KEY: ${SECRET_KEY:-change-me}
     networks:
       - cyberguard-network
     healthcheck:
