@@ -3,11 +3,12 @@ import json
 import os
 from datetime import datetime
 from threading import Lock
+from pathlib import Path
 
 # Use absolute path to ensure DB is found
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "../../data")
-DB_PATH = os.getenv("DB_PATH", os.path.join(DATA_DIR, "deployments.db"))
+DB_PATH = os.getenv("DATABASE_PATH", str(Path(__file__).parent.parent.parent / "data" / "deployments.db"))
 
 class Database:
     _instance = None
@@ -27,7 +28,9 @@ class Database:
         return conn
 
     def _init_db(self):
-        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        db_dir = Path(DB_PATH).parent
+        db_dir.mkdir(parents=True, exist_ok=True)
+        
         with self._get_connection() as conn:
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS deployments (

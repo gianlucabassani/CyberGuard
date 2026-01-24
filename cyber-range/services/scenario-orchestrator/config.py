@@ -2,19 +2,22 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
-# DIRECTORIES - New Architecture
-BASE_DIR = Path(__file__).parent.parent
-TEMPLATES_DIR = BASE_DIR / "scenarios"
-BASE_TERRAFORM_TEMPLATE = BASE_DIR / "infra" / "terraform"
+# DIRECTORIES - Project Root Based
+BASE_DIR = Path(__file__).parent.parent.parent.parent  # Goes up to ~/Projects/CyberGuard/
+CYBER_RANGE_DIR = BASE_DIR / "cyber-range"
 
-# Runtime directories (inside Docker containers)
-RUNS_DIR = Path(os.getenv("RUNS_DIR", "/app/runs"))
-DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
-KEYS_DIR = Path(os.getenv("KEYS_DIR", "/app/keys"))
-CACHE_DIR = Path(os.getenv("CACHE_DIR", "/app/cache"))
+# Code directories
+TEMPLATES_DIR = Path(__file__).parent / "templates"
+BASE_TERRAFORM_TEMPLATE = CYBER_RANGE_DIR / "infra" / "terraform"
+
+# Runtime directories (at project root for easy access)
+RUNS_DIR = Path(os.getenv("RUNS_DIR", str(BASE_DIR / "runs")))
+DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
+KEYS_DIR = Path(os.getenv("KEYS_DIR", str(BASE_DIR / "keys")))
+CACHE_DIR = Path(os.getenv("CACHE_DIR", str(BASE_DIR / "cache")))
 
 # OPENSTACK CREDENTIALS
 OS_USERNAME = os.getenv("OS_USERNAME")
@@ -31,16 +34,16 @@ VICTIM_IMAGE_NAME = os.getenv("VICTIM_IMAGE_NAME", "Ubuntu-22.04")
 ATTACKER_IMAGE_NAME = os.getenv("ATTACKER_IMAGE_NAME", "Kali-Linux")
 SOC_IMAGE_NAME = os.getenv("SOC_IMAGE_NAME", "Ubuntu-22.04")
 
-# Flavor (VM size) defaults
+# Flavor defaults
 ATTACKER_FLAVOR = os.getenv("ATTACKER_FLAVOR", "m1.medium")
 VICTIM_FLAVOR = os.getenv("VICTIM_FLAVOR", "m1.small")
 SOC_FLAVOR = os.getenv("SOC_FLAVOR", "m1.medium")
 
-# CELERY & REDIS (NEW)
+# CELERY & REDIS
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 
-# DATABASE (NEW)
+# DATABASE
 DATABASE_PATH = os.getenv("DATABASE_PATH", str(DATA_DIR / "deployments.db"))
 
 # TERRAFORM CONFIGURATION
@@ -48,29 +51,35 @@ TF_PLUGIN_CACHE_DIR = os.getenv("TF_PLUGIN_CACHE_DIR", str(CACHE_DIR / "terrafor
 
 # API CONFIGURATION
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
-API_PORT = int(os.getenv("API_PORT", "5000"))
+API_PORT = int(os.getenv("API_PORT", "8000"))
 DEBUG_MODE = os.getenv("DEBUG_MODE", "False").lower() == "true"
 
 # WORKER CONFIGURATION
-WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "3"))  # Max 3 concurrent deploys
+WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "3"))
 WORKER_LOG_LEVEL = os.getenv("WORKER_LOG_LEVEL", "INFO")
 
 # VALIDATION
 def validate_config():
     """Validate required configuration on startup"""
     errors = []
+    warnings = []
     
-    # Check OpenStack credentials
-    if not OS_USERNAME:
-        errors.append("OS_USERNAME is required")
-    if not OS_PASSWORD:
-        errors.append("OS_PASSWORD is required")
-    if not OS_PROJECT_ID:
-        errors.append("OS_PROJECT_ID (or OS_TENANT_ID) is required")
-    if not OS_AUTH_URL:
-        errors.append("OS_AUTH_URL is required")
+    # Check OpenStack credentials (skip in MOCK mode)
+    mock_mode = os.getenv("MOCK_MODE", "false").lower() == "true"
     
-    # Check directories exist (or can be created)
+    if not mock_mode:
+        if not OS_USERNAME:
+            errors.append("OS_USERNAME is required (set MOCK_MODE=true to skip)")
+        if not OS_PASSWORD:
+            errors.append("OS_PASSWORD is required (set MOCK_MODE=true to skip)")
+        if not OS_PROJECT_ID:
+            errors.append("OS_PROJECT_ID (or OS_TENANT_ID) is required (set MOCK_MODE=true to skip)")
+        if not OS_AUTH_URL:
+            errors.append("OS_AUTH_URL is required (set MOCK_MODE=true to skip)")
+    else:
+        warnings.append("Running in MOCK_MODE - no real infrastructure will be created")
+    
+    # Check code directories exist
     for dir_name, dir_path in [
         ("TEMPLATES_DIR", TEMPLATES_DIR),
         ("BASE_TERRAFORM_TEMPLATE", BASE_TERRAFORM_TEMPLATE)
@@ -85,23 +94,27 @@ def validate_config():
     # Create runtime directories if they don't exist
     for dir_path in [RUNS_DIR, DATA_DIR, KEYS_DIR, CACHE_DIR]:
         dir_path.mkdir(parents=True, exist_ok=True)
+        print(f"✅ Directory ready: {dir_path}")
+    
+    # Ensure plugin cache subdir exists
+    Path(TF_PLUGIN_CACHE_DIR).mkdir(parents=True, exist_ok=True)
+    
+    # Print warnings
+    for warning in warnings:
+        print(f"⚠️  WARNING: {warning}")
+    
+    print(f"✅ Configuration validated successfully")
+    print(f"   BASE_DIR: {BASE_DIR}")
+    print(f"   RUNS_DIR: {RUNS_DIR}")
+    print(f"   DATA_DIR: {DATA_DIR}")
 
-
-# for any old scripts that might reference it:
-TF_DIR = BASE_TERRAFORM_TEMPLATE  # Deprecated: use BASE_TERRAFORM_TEMPLATE
+# Deprecated alias for compatibility
+TF_DIR = BASE_TERRAFORM_TEMPLATE
 
 if __name__ == "__main__":
     # Test configuration
     try:
         validate_config()
-        print("✅ Configuration valid!")
-        print(f"\nOpenStack User: {OS_USERNAME}")
-        print(f"OpenStack Project: {OS_PROJECT_ID}")
-        print(f"Auth URL: {OS_AUTH_URL}")
-        print(f"Region: {OS_REGION_NAME}")
-        print(f"\nTemplates: {TEMPLATES_DIR}")
-        print(f"Terraform Template: {BASE_TERRAFORM_TEMPLATE}")
-        print(f"Runs Directory: {RUNS_DIR}")
-        print(f"Database: {DATABASE_PATH}")
+        print("\n✅ All paths configured correctly!")
     except ValueError as e:
-        print(f"❌ {e}")
+        print(f"\n❌ {e}")

@@ -5,13 +5,25 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import logging
 import json
-import uuid  # <--- NEW: For generating unique IDs
+import uuid 
+import sys
 
 from database import Database
 from tasks import deploy_lab, destroy_lab
+from config import validate_config 
+
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("API")
+
+try:
+    validate_config()
+    logger.info("✅ Configuration validation passed")
+except ValueError as e:
+    logger.error(f"❌ Configuration error: {e}")
+    logger.error("Fix your .env file or environment variables before starting")
+    sys.exit(1)
 
 app = FastAPI(title="Cyber Range Orchestrator")
 db = Database()
