@@ -10,16 +10,113 @@ CyberGuard is an Infrastructure-as-Code platform that automates the creation of 
 
 
 
-## 🎯 Features
+## 🐳 Docker Quick Start (Recommended)
 
-- **🚀 One-Click Deployment:** Launch complete cyber ranges with a single click
-- **🔄 Concurrent Labs:** Run up to 3+ isolated environments simultaneously
-- **📊 Real-Time Dashboard:** Live topology visualization with Cytoscape.js
-- **🔒 Workspace Isolation:** Each lab gets its own Terraform state directory
-- **⚡ Async Processing:** Celery workers handle long-running deployments
-- **🎭 Mock Mode:** Test without real infrastructure using simulation
-- **🌐 Multi-Scenario:** Support for different training scenarios (Mr. Robot CTF, Random VulnHub)
+The easiest way to run the platform. No manual Python or Redis installation required.
 
+### 1. Configure Environment
+
+Create the configuration file (Simulation Mode is enabled by default).
+
+```bash
+cp .env.example .env
+```
+
+### 2. Launch the Stack
+
+Build and start the services in the background.
+
+```bash
+docker-compose up -d --build
+```
+
+### 3. Access
+
+Open your browser at **http://localhost:5000**.
+
+### 4. Stop
+
+To stop and remove containers:
+
+```bash
+docker-compose down
+```
+
+
+
+## 🚀 Quick Start (Simulation Mode)
+
+This manual way of running the project simulates infrastructure provisioning delays and generates realistic mock data.
+
+### 1. Prerequisites
+* **Python 3.10+**
+* **Redis Server** (required for the message broker).
+* **OpenTofu** (optional for Simulation Mode, required for Prod).
+
+### 2. Running the Platform
+You need to run the services in separate terminal windows.
+
+**Terminal 1: Redis Broker**
+Start the message queue service.
+```bash
+sudo systemctl start redis-server
+```
+
+**Terminal 2: Background Worker**
+Processes the deployment tasks. We enable Mock Mode here.
+
+```bash
+cd services/scenario-orchestrator
+pip install -r requirements.txt
+export MOCK_MODE=true
+celery -A tasks worker --loglevel=info --concurrency=3
+```
+
+**Terminal 3: Orchestrator API**
+The REST backend that handles requests.
+
+```bash
+cd services/scenario-orchestrator
+# If using a virtualenv, ensure it is activated
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+**Terminal 4: Web Dashboard**
+The frontend user interface.
+
+```bash
+cd webui
+pip install -r requirements.txt
+python3 app.py
+```
+
+### 3. Access
+
+Open your browser at **http://localhost:5000**.
+
+1. **Launch:** Select a scenario and click "Launch".
+2. **Wait:** You will see the status change from "Pending" to "Deploying" (Simulating ~15s delay).
+3. **Control:** Once "Active" (Green), click "Enter Control" to view the generated credentials and topology.
+
+
+
+## ⚙️ Switching to Production (Real OpenStack)
+
+To deploy actual infrastructure, you must disable Mock Mode and provide valid credentials.
+
+1. Create a `.env` file in `services/scenario-orchestrator/` based on `.env.example`.
+2. Update the configuration:
+
+```bash
+# .env config
+MOCK_MODE=false             # <--- Disables simulation to use Real OpenTofu
+OS_AUTH_URL=https://your-openstack:5000/v3
+OS_USERNAME=admin
+OS_PASSWORD=secret
+OS_PROJECT_ID=your_project_id
+OS_USER_DOMAIN_NAME=Default
+
+```
 
 
 ## 🏗️ Architecture
@@ -208,7 +305,7 @@ cd ../../webui
 python3 app.py
 ```
 
----
+
 
 ## 📁 Project Structure
 ```

@@ -5,13 +5,24 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# DIRECTORIES - Project Root Based
-BASE_DIR = Path(__file__).parent.parent.parent.parent  # Goes up to ~/Projects/CyberGuard/
-CYBER_RANGE_DIR = BASE_DIR / "cyber-range"
+# DETECT ENVIRONMENT (Docker vs Local)
+IN_DOCKER = os.path.exists('/.dockerenv')
 
-# Code directories
-TEMPLATES_DIR = Path(__file__).parent / "templates"
-BASE_TERRAFORM_TEMPLATE = CYBER_RANGE_DIR / "infra" / "terraform"
+if IN_DOCKER:
+    # Docker paths (absolute)
+    BASE_DIR = Path("/app")
+    CYBER_RANGE_DIR = BASE_DIR
+    TEMPLATES_DIR = BASE_DIR / "orchestrator" / "templates"
+    BASE_TERRAFORM_TEMPLATE = BASE_DIR / "terraform"
+else:
+    # Local development paths (relative)
+    # DIRECTORIES - Corrected Path Resolution
+    BASE_DIR = Path(__file__).parent.parent.parent.parent  # Goes up to ~/Projects/CyberGuard/
+    CYBER_RANGE_DIR = BASE_DIR / "cyber-range"
+
+    # Code directories (inside cyber-range/)
+    TEMPLATES_DIR = Path(__file__).parent / "templates"  # scenario-orchestrator/templates/
+    BASE_TERRAFORM_TEMPLATE = CYBER_RANGE_DIR / "infra" / "terraform"
 
 # Runtime directories (at project root for easy access)
 RUNS_DIR = Path(os.getenv("RUNS_DIR", str(BASE_DIR / "runs")))
@@ -105,6 +116,9 @@ def validate_config():
     
     print(f"✅ Configuration validated successfully")
     print(f"   BASE_DIR: {BASE_DIR}")
+    print(f"   CYBER_RANGE_DIR: {CYBER_RANGE_DIR}")
+    print(f"   TEMPLATES_DIR: {TEMPLATES_DIR}")
+    print(f"   TERRAFORM_TEMPLATE: {BASE_TERRAFORM_TEMPLATE}")
     print(f"   RUNS_DIR: {RUNS_DIR}")
     print(f"   DATA_DIR: {DATA_DIR}")
 

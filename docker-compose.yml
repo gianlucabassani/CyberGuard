@@ -1,0 +1,162 @@
+version: '3.8'
+
+services:
+  # Redis - Message Broker
+  redis:
+    image: redis:7-alpine
+    container_name: cyberguard-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - cyberguard-network
+
+  # Orchestrator API
+  orchestrator:
+    build:
+      context: ./cyber-range/services/scenario-orchestrator
+      dockerfile: Dockerfile
+    container_name: cyberguard-orchestrator
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    environment:
+      # Mock Mode (set to false for production)
+      MOCK_MODE: ${MOCK_MODE:-true}
+      
+      # OpenStack Credentials
+      OS_AUTH_URL: ${OS_AUTH_URL}
+      OS_USERNAME: ${OS_USERNAME}
+      OS_PASSWORD: ${OS_PASSWORD}
+      OS_PROJECT_ID: ${OS_PROJECT_ID}
+      OS_REGION_NAME: ${OS_REGION_NAME:-RegionOne}
+      OS_USER_DOMAIN_NAME: ${OS_USER_DOMAIN_NAME:-Default}
+      OS_PROJECT_DOMAIN_NAME: ${OS_PROJECT_DOMAIN_NAME:-Default}
+      
+      # Application Configuration
+      DATABASE_PATH: /app/data/deployments.db
+      RUNS_DIR: /app/runs
+      CACHE_DIR: /app/cache
+      KEYS_DIR: /app/keys
+      TF_PLUGIN_CACHE_DIR: /app/cache/terraform-plugins
+      
+      # Celery Configuration
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      
+      # API Configuration
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      DEBUG_MODE: ${DEBUG_MODE:-false}
+      
+      # Worker Configuration
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      WORKER_LOG_LEVEL: ${WORKER_LOG_LEVEL:-INFO}
+      
+      # Python path
+      PYTHONPATH: /app
+    volumes:
+      # Persistent data
+      - ./data:/app/data
+      - ./runs:/app/runs
+      - ./keys:/app/keys
+      - tf-cache:/app/cache
+      
+      # Terraform templates (read-only)
+      - ./cyber-range/infra/terraform:/app/terraform:ro
+    networks:
+      - cyberguard-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/deployments"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker
+  worker:
+    build:
+      context: ./cyber-range/services/scenario-orchestrator
+      dockerfile: Dockerfile
+    container_name: cyberguard-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      orchestrator:
+        condition: service_started
+    # FIXED: Use the correct module path (no orchestrator. prefix)
+    command: celery -A tasks worker --loglevel=info --concurrency=3
+    environment:
+      # Same environment as orchestrator
+      MOCK_MODE: ${MOCK_MODE:-true}
+      OS_AUTH_URL: ${OS_AUTH_URL}
+      OS_USERNAME: ${OS_USERNAME}
+      OS_PASSWORD: ${OS_PASSWORD}
+      OS_PROJECT_ID: ${OS_PROJECT_ID}
+      OS_REGION_NAME: ${OS_REGION_NAME:-RegionOne}
+      OS_USER_DOMAIN_NAME: ${OS_USER_DOMAIN_NAME:-Default}
+      OS_PROJECT_DOMAIN_NAME: ${OS_PROJECT_DOMAIN_NAME:-Default}
+      DATABASE_PATH: /app/data/deployments.db
+      RUNS_DIR: /app/runs
+      CACHE_DIR: /app/cache
+      KEYS_DIR: /app/keys
+      TF_PLUGIN_CACHE_DIR: /app/cache/terraform-plugins
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-3}
+      WORKER_LOG_LEVEL: ${WORKER_LOG_LEVEL:-INFO}
+      # Python path
+      PYTHONPATH: /app
+    volumes:
+      # Shared volumes with orchestrator
+      - ./data:/app/data
+      - ./runs:/app/runs
+      - ./keys:/app/keys
+      - tf-cache:/app/cache
+      - ./cyber-range/infra/terraform:/app/terraform:ro
+    networks:
+      - cyberguard-network
+
+  # Web UI
+  webui:
+    build:
+      context: ./cyber-range/webui
+      dockerfile: Dockerfile
+    container_name: cyberguard-webui
+    restart: unless-stopped
+    depends_on:
+      - orchestrator
+    ports:
+      - "5000:5000"
+    environment:
+      ORCHESTRATOR_URL: http://orchestrator:8000
+      FLASK_ENV: ${FLASK_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+    networks:
+      - cyberguard-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  cyberguard-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
+  tf-cache:
+    driver: local
