@@ -1,19 +1,19 @@
 import sqlite3
 import json
 import os
-import time
 from datetime import datetime
 from threading import Lock
 
-
-DB_PATH = os.getenv("DB_PATH", "../../data/deployments.db")
+# Use absolute path to ensure DB is found
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "../../data")
+DB_PATH = os.getenv("DB_PATH", os.path.join(DATA_DIR, "deployments.db"))
 
 class Database:
     _instance = None
     _lock = Lock()
 
     def __new__(cls):
-        # Singleton Pattern 
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -22,13 +22,11 @@ class Database:
         return cls._instance
 
     def _get_connection(self):
-        # SQLite (has multithread support)
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         conn.row_factory = sqlite3.Row  
         return conn
 
     def _init_db(self):
-        """Inizializza la tabella se non esiste"""
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
         with self._get_connection() as conn:
             conn.execute('''

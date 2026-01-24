@@ -34,6 +34,7 @@ def dashboard(instance_id):
         # Passes Dict to template (Fixed "str object" error)
         return render_template('dashboard.html', 
                              instance_id=instance_id,
+                             instance_name=data.get('user_id', 'Unknown'),
                              status=data.get('outputs', {}), 
                              state=data.get('status', 'unknown'))
     except Exception as e:

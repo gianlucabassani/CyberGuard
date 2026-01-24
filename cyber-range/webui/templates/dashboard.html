@@ -4,10 +4,10 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2 class="font-tech text-white mb-0">
-            MISSION CONTROL: <span class="text-info">{{ instance_id }}</span>
-            <span class="badge bg-success align-middle ms-2">ONLINE</span>
-        </h2>
+        <h6 class="text-muted text-uppercase mb-1">Mission Control</h6>
+        <h2 class="font-tech text-white mb-0">{{ instance_name }}</h2>
+        <small class="text-muted font-mono">UUID: {{ instance_id }}</small>
+    </div>
         <p class="text-muted small text-monospace mb-0">
             <i class="fa-solid fa-server me-1"></i> OpenStack RegionOne
         </p>
