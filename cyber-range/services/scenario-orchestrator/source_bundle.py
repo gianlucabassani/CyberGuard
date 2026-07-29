@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import fcntl
 import os
 import re
 import shutil
@@ -154,11 +155,15 @@ def _sha256_file(path: Path) -> tuple[str, int]:
     return f"sha256:{digest.hexdigest()}", size
 
 
-def _store_size() -> int:
+def _store_size(*, exclude: Path | None = None) -> int:
     root = config.SOURCE_BUNDLES_DIR
     if not root.exists():
         return 0
-    return sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
+    return sum(
+        path.stat().st_size
+        for path in root.rglob("*")
+        if path.is_file() and (exclude is None or exclude not in path.parents)
+    )
 
 
 def _artifact_dir(digest: str) -> Path:
@@ -178,6 +183,10 @@ def get_artifact(digest: str) -> dict:
         raise SourceBundleError("source-bundle artifact was not found") from exc
     if manifest.get("digest") != digest:
         raise SourceBundleError("source-bundle manifest identity mismatch")
+    for name in ("original.tar", "payload.tar"):
+        path = artifact_dir / name
+        if path.is_symlink() or not path.is_file():
+            raise SourceBundleError("source-bundle artifact payload is missing")
     return manifest
 
 
@@ -185,7 +194,10 @@ def read_payload(digest: str, expected_payload_digest: str) -> bytes:
     """Load the canonical tar for Docker transport and verify it before use."""
     artifact_dir = _artifact_dir(digest)
     payload_path = artifact_dir / "payload.tar"
-    actual, size = _sha256_file(payload_path)
+    try:
+        actual, size = _sha256_file(payload_path)
+    except OSError as exc:
+        raise SourceBundleError("source-bundle payload could not be read") from exc
     if actual != expected_payload_digest:
         raise SourceBundleError("source-bundle payload integrity check failed")
     if size > config.SOURCE_BUNDLE_MAX_EXPANDED_BYTES + (16 * 1024 * 1024):
@@ -224,12 +236,12 @@ def ingest(stream, filename: str | None) -> dict:
 
         archive_meta = _normalize(original_path, payload_path)
         payload_digest, payload_bytes = _sha256_file(payload_path)
-        projected = _store_size() + uploaded + payload_bytes
-        if projected > config.SOURCE_BUNDLE_STORE_MAX_BYTES:
-            raise SourceBundleTooLarge(
-                "source-bundle store has reached its configured capacity"
-            )
-        safe_filename = Path(filename or "source.tar").name[:255]
+        safe_filename = (
+            (filename or "source.tar").replace("\\", "/").split("/")[-1][
+                :255
+            ]
+            or "source.tar"
+        )
         manifest = {
             "schema": "nidavellir/source-bundle/v1",
             "digest": identity,
@@ -247,12 +259,28 @@ def ingest(stream, filename: str | None) -> dict:
         )
         for path in work_dir.iterdir():
             path.chmod(0o400)
-        artifact_dir.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            os.rename(work_dir, artifact_dir)
-        except FileExistsError:
-            return get_artifact(identity)
-        artifact_dir.chmod(0o500)
+
+        # Serialize the capacity check and immutable publish across API workers.
+        # The archive was already bounded while streaming, so the lock covers
+        # only local metadata and an atomic same-filesystem rename.
+        lock_path = config.SOURCE_BUNDLES_DIR / ".intake.lock"
+        with lock_path.open("a+b") as store_lock:
+            fcntl.flock(store_lock.fileno(), fcntl.LOCK_EX)
+            if artifact_dir.exists():
+                return get_artifact(identity)
+            projected = _store_size(exclude=work_dir) + uploaded + payload_bytes
+            if projected > config.SOURCE_BUNDLE_STORE_MAX_BYTES:
+                raise SourceBundleTooLarge(
+                    "source-bundle store has reached its configured capacity"
+                )
+            artifact_dir.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.rename(work_dir, artifact_dir)
+            except OSError:
+                if artifact_dir.exists():
+                    return get_artifact(identity)
+                raise
+            artifact_dir.chmod(0o500)
         return manifest
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

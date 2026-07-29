@@ -88,6 +88,10 @@ services:
       # postgres service above.
       DATABASE_URL: ${DATABASE_URL:-}
       DATABASE_PATH: /app/data/deployments.db
+      DATA_DIR: /app/data
+      SOURCE_BUNDLE_MAX_UPLOAD_BYTES: ${SOURCE_BUNDLE_MAX_UPLOAD_BYTES:-33554432}
+      SOURCE_BUNDLE_MAX_EXPANDED_BYTES: ${SOURCE_BUNDLE_MAX_EXPANDED_BYTES:-134217728}
+      SOURCE_BUNDLE_STORE_MAX_BYTES: ${SOURCE_BUNDLE_STORE_MAX_BYTES:-2147483648}
       RUNS_DIR: /app/runs
       CACHE_DIR: /app/cache
       KEYS_DIR: /app/keys
@@ -166,6 +170,10 @@ services:
       OS_PROJECT_DOMAIN_NAME: ${OS_PROJECT_DOMAIN_NAME:-Default}
       DATABASE_URL: ${DATABASE_URL:-}
       DATABASE_PATH: /app/data/deployments.db
+      DATA_DIR: /app/data
+      SOURCE_BUNDLE_MAX_UPLOAD_BYTES: ${SOURCE_BUNDLE_MAX_UPLOAD_BYTES:-33554432}
+      SOURCE_BUNDLE_MAX_EXPANDED_BYTES: ${SOURCE_BUNDLE_MAX_EXPANDED_BYTES:-134217728}
+      SOURCE_BUNDLE_STORE_MAX_BYTES: ${SOURCE_BUNDLE_STORE_MAX_BYTES:-2147483648}
       RUNS_DIR: /app/runs
       CACHE_DIR: /app/cache
       KEYS_DIR: /app/keys
@@ -244,6 +252,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:-change-me}
       WEBUI_USERNAME: ${WEBUI_USERNAME:-admin}
       WEBUI_PASSWORD: ${WEBUI_PASSWORD:-nidavellir}
+      WEBUI_MAX_UPLOAD_BYTES: ${WEBUI_MAX_UPLOAD_BYTES:-35651584}
     networks:
       - nidavellir-network
     healthcheck:

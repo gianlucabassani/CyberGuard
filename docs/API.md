@@ -359,6 +359,27 @@ so distroless images work and the artifact is not behaviorally modified. An imag
 that exits is reported by the same fail-closed preflight and the configurator is
 not opened for packaged OCI targets.
 
+Local source bundles use a two-step content-addressed flow:
+
+1. `POST /targets/source-bundles` (operator-only multipart field `file`) accepts
+   `.tar`, `.tar.gz`, or `.tgz` and returns `{artifact: {digest,
+   payload_digest, filename, upload_bytes, expanded_bytes, file_count, ...}}`.
+2. `POST /arenas/source-bundle/preview` or `POST /arenas/source-bundle` accepts
+   `{instance_id, artifact_digest, ports?, include_attacker?, setup_mode?,
+   time_box_seconds?, command_budget?, setup_egress?, authorization_basis,
+   authorization_confirmed, scope_note?}`.
+
+The upload is streamed and independently bounded by compressed size, expanded
+size, per-file size, member count, path length/depth, and total artifact-store
+capacity. Intake rejects traversal, absolute paths, duplicate/colliding names,
+`.git`, links, sparse files, devices and other special members. It never extracts
+onto the control-plane filesystem or executes bundle content. A sanitized
+canonical tar is hashed and stored atomically; the worker re-verifies that payload
+before sending it through the Docker API to a networkless helper and an
+arena-owned volume. The helper creates a clean Git baseline, enabling the same
+GUI/MCP diff contract as Git intake. Build/install commands remain confined to
+the consent-gated disposable setup target.
+
 Both introspect the repo (M1-1) — detected language / build system / declared
 ports / base runtime — and plan the deterministic build tier (M1-2, ADR-0008), so
 the response carries `introspection` + `build_plan`. When the repo ships a

@@ -555,7 +555,9 @@ def test_wizard_page_renders(client):
     assert b"authorization_confirmed" in r.data
     assert b"authorized to assess it" in r.data
     assert b'option value="oci"' in r.data
+    assert b'option value="bundle"' in r.data
     assert b'name="image"' in r.data
+    assert b'multipart/form-data' in r.data
 
 
 def test_preflight_proxy_returns_target_readiness(client, monkeypatch):
@@ -617,6 +619,68 @@ def test_oci_preview_proxy_selects_oci_endpoint(client, monkeypatch):
     assert captured["payload"]["image"] == "nginx:1.27"
     assert captured["payload"]["platform"] == "linux/arm64"
     assert "repo" not in captured["payload"]
+
+
+def test_bundle_preview_proxy_selects_bundle_endpoint(client, monkeypatch):
+    import app as webui_module
+
+    captured = {}
+
+    def fake_post(path, payload):
+        captured["path"] = path
+        captured["payload"] = payload
+        return {"valid": True}, 200
+
+    monkeypatch.setattr(webui_module, "_api_post", fake_post)
+    _login(client)
+    token = _csrf_token(client, "/")
+    response = client.post(
+        "/api/arenas/sut/preview",
+        json={
+            "target_type": "bundle",
+            "instance_id": "bundle-preview",
+            "artifact_digest": "sha256:" + "a" * 64,
+            "authorization_confirmed": True,
+        },
+        headers={"X-CSRFToken": token},
+    )
+
+    assert response.status_code == 200
+    assert captured["path"] == "/arenas/source-bundle/preview"
+    assert captured["payload"]["artifact_digest"] == "sha256:" + "a" * 64
+
+
+def test_source_bundle_upload_proxy_streams_multipart(client, monkeypatch):
+    import io
+
+    import app as webui_module
+
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"artifact": {"digest": "sha256:" + "b" * 64}}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured["files"] = kwargs["files"]
+        return _FakeResp()
+
+    monkeypatch.setattr(webui_module.requests, "post", fake_post)
+    _login(client)
+    token = _csrf_token(client, "/")
+    response = client.post(
+        "/api/targets/source-bundles",
+        data={"file": (io.BytesIO(b"tar bytes"), "project.tar")},
+        content_type="multipart/form-data",
+        headers={"X-CSRFToken": token},
+    )
+
+    assert response.status_code == 200
+    assert captured["url"].endswith("/targets/source-bundles")
+    assert captured["files"]["file"][0] == "project.tar"
 
 
 def test_grant_binding_proxy_requires_csrf(client):

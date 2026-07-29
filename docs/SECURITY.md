@@ -87,6 +87,21 @@ packaged `service.image`. When enabled:
 A rootless/sandboxed builder is the planned hardening for hosted multi-tenant
 (roadmap Phase 5).
 
+## Local source-bundle intake
+
+Source-bundle intake accepts only bounded tar/tar.gz archives from authenticated
+operators. It rejects path traversal, links, special files, sparse members,
+embedded `.git` metadata, duplicates, excessive depth/count, oversized files and
+compression bombs by declared expanded size. Intake creates a canonical tar
+without extracting to the control-plane filesystem and stores it under the
+upload's SHA-256 identity with read-only permissions and a total store cap.
+
+The worker resolves artifacts only by validated digest, re-hashes the canonical
+payload, and transfers it through the Docker API to an arena-labeled volume.
+Extraction and Git-baseline creation use a networkless disposable helper. No
+bundle-supplied build/install command executes in the API or worker process;
+those operations remain inside the time-boxed setup target.
+
 ## Reporting a vulnerability
 
 This is an educational project. If you find a security issue, open a private

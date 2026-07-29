@@ -146,6 +146,14 @@ running. The selected `linux/amd64` or `linux/arm64` platform is recorded in the
 manifest and enforced by docker-local. OCI targets have no source workspace and
 skip the configurator.
 
+**Local source-bundle identity.** A validated tar artifact is addressed by the
+SHA-256 of the exact upload; its sanitized canonical payload has a second digest.
+The scenario carries only those digests and the `/opt/sut` mount destination,
+never a caller-controlled host path. docker-local verifies the payload, transfers
+it through the Docker API into an arena-owned volume with a networkless helper,
+and initializes a clean Git baseline. The bundle then follows the same
+consent-gated configurator flow as a Git checkout.
+
 ### Importing from Vulhub (P1-5)
 
 [Vulhub](https://github.com/vulhub/vulhub) ships hundreds of pre-built vulnerable

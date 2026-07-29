@@ -322,7 +322,7 @@ paginated Git evidence. Next: staged/unstaged grouping, safe untracked-file opt-
 downloadable hashed patch artifacts, before/after filesystem manifests for binary
 targets, and attaching a selected diff/hunk to a finding.
 
-**M4-B — safe target intake + reset · GIT + PUBLIC OCI SLICES SHIPPED (2026-07-29).**
+**M4-B — safe target intake + reset · GIT + PUBLIC OCI + LOCAL BUNDLE SLICES SHIPPED (2026-07-29).**
 - Git intake now resolves a branch/tag to an immutable object ID, compiles and
   resets from that identity, records explicit authorization/scope, and runs a
   fail-closed infrastructure preflight surfaced identically in GUI, REST and MCP.
@@ -331,8 +331,12 @@ targets, and attaching a selected diff/hunk to a finding.
   native entrypoint. The runtime platform is explicit and provider-enforced for
   multi-architecture images. Intake performs metadata-only control-plane calls
   and rejects private/local registries in this phase.
-- Next: accept local source bundle, binary/installer, or
-  prebuilt VM image with equivalent provenance, hashes, authorization and scope.
+- Local source-bundle intake accepts bounded tar/tar.gz uploads, rejects archive
+  escapes/links/special files/bombs, stores exact and canonical payload digests,
+  materializes through the Docker API with no host bind, and initializes the
+  shared Git-diff baseline in a networkless helper.
+- Next: accept binary/installer or prebuilt VM image with equivalent provenance,
+  hashes, authorization and scope.
 - Never execute target-controlled install/build logic in the control plane.
   Use a disposable build worker with bounded CPU/RAM/disk/time and explicit
   egress; promote only the resulting immutable artifact.

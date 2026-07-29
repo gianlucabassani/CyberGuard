@@ -5,8 +5,14 @@ Unit tests drive the provider with a fake Docker client (no daemon needed);
 the integration test at the bottom runs a real container lab end-to-end and
 is what CI uses to prove the provider against an actual Docker daemon.
 """
+import io
+import tarfile
+import uuid
+
+import catalog
 import config
 import pytest
+import source_bundle
 
 from providers.docker_local import (
     LABEL_LAB_ID,
@@ -1068,6 +1074,59 @@ def test_keepalive_keeps_arbitrary_victim_alive_real_docker(tmp_path):
             client.images.remove(tag, force=True)
         except Exception:  # noqa: BLE001 - best-effort cleanup
             pass
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _docker_available(), reason="no Docker daemon available")
+def test_source_bundle_real_docker_materializes_clean_unexecuted_workspace(
+    tmp_path, monkeypatch
+):
+    """A local archive becomes an isolated Git workspace without running it."""
+    monkeypatch.setattr(config, "SOURCE_BUNDLES_DIR", tmp_path / "bundles")
+    monkeypatch.setattr(config, "SOURCE_BUNDLE_MAX_UPLOAD_BYTES", 1024 * 1024)
+    monkeypatch.setattr(config, "SOURCE_BUNDLE_MAX_EXPANDED_BYTES", 1024 * 1024)
+    monkeypatch.setattr(config, "SOURCE_BUNDLE_STORE_MAX_BYTES", 4 * 1024 * 1024)
+
+    upload = io.BytesIO()
+    with tarfile.open(fileobj=upload, mode="w:gz") as archive:
+        for name, content, mode in (
+            ("product/README.md", b"authorized research target\n", 0o644),
+            ("product/run.sh", b"touch /tmp/BUNDLE_EXECUTED\n", 0o755),
+        ):
+            member = tarfile.TarInfo(name)
+            member.size = len(content)
+            member.mode = mode
+            archive.addfile(member, io.BytesIO(content))
+    upload.seek(0)
+    artifact = source_bundle.ingest(upload, "product.tar.gz")
+    scenario = catalog.build_source_bundle_scenario(
+        "source-bundle integration",
+        artifact["digest"],
+        artifact["payload_digest"],
+        include_attacker=False,
+    )
+
+    provider = DockerLocalProvider()
+    instance_id = f"itest-bundle-{uuid.uuid4().hex[:8]}"
+    try:
+        deployed = provider.deploy(scenario, instance_id)
+        assert deployed["success"] is True, deployed
+        assert deployed["outputs"]["node_sut_sut_source"] == "/opt/sut"
+
+        content = provider.exec_in_node(
+            instance_id,
+            "sut",
+            "cat /opt/sut/README.md && test ! -e /tmp/BUNDLE_EXECUTED",
+        )
+        assert content["success"] is True, content
+        assert content["stdout"] == "authorized research target\n"
+
+        diff = provider.workspace_diff(instance_id, "sut", "/opt/sut")
+        assert diff["success"] is True, diff
+        assert diff["changed_file_count"] == 0
+        assert diff["diff"] == ""
+    finally:
+        assert provider.destroy(instance_id)["success"] is True
 
 
 # --- software-under-test `service:` provisioning (P1-6, packaged-first) -------

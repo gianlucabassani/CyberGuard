@@ -39,7 +39,7 @@
   </button>
 </div>
 
-<form method="POST" action="{{ url_for('build_sut') }}" id="wiz-form">
+<form method="POST" action="{{ url_for('build_sut') }}" id="wiz-form" enctype="multipart/form-data">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   <!-- STEP 1: TARGET -->
@@ -55,6 +55,7 @@
           <select class="select" name="target_type" id="wiz-target-type">
             <option value="git">Git repository</option>
             <option value="oci">OCI container image</option>
+            <option value="bundle">Local source bundle</option>
           </select>
         </div>
         <div id="wiz-git-fields">
@@ -72,6 +73,13 @@
               <option value="linux/arm64">linux/arm64</option>
             </select>
           </div>
+        </div>
+        <div id="wiz-bundle-fields" hidden>
+          <div class="field"><label class="label">Source archive <span class="faint">(.tar, .tar.gz, or .tgz · max 32 MiB)</span></label>
+            <input class="input mono" type="file" name="file" id="wiz-bundle"
+                   accept=".tar,.tar.gz,.tgz,application/x-tar,application/gzip"></div>
+          <input type="hidden" name="artifact_digest" id="wiz-artifact-digest">
+          <p class="help">The archive is validated without host extraction, stripped of links and special files, hashed, and stored immutably. Setup runs only inside the disposable target.</p>
         </div>
         <div class="grid cols-2" style="gap:14px">
           <div class="field"><label class="label">Service ports</label><input class="input mono" name="ports" id="wiz-ports" placeholder="8000"></div>

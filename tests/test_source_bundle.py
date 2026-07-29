@@ -79,6 +79,11 @@ def test_ingest_rejects_unsafe_members(entries, message):
         source_bundle.ingest(_tar(entries), "unsafe.tar")
 
 
+def test_ingest_rejects_bundle_without_regular_files():
+    with pytest.raises(source_bundle.SourceBundleError, match="regular file"):
+        source_bundle.ingest(_tar([("empty", "", "dir")]), "empty.tar")
+
+
 def test_ingest_rejects_upload_and_expanded_bounds(monkeypatch):
     monkeypatch.setattr(source_bundle.config, "SOURCE_BUNDLE_MAX_UPLOAD_BYTES", 100)
     with pytest.raises(source_bundle.SourceBundleTooLarge, match="upload"):

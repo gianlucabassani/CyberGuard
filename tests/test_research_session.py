@@ -107,3 +107,46 @@ def test_oci_target_with_foothold_does_not_require_source_workspace():
     workspace = next(c for c in result["checks"] if c["id"] == "workspace")
     assert workspace["required"] is False
     assert result["ready"] is True
+
+
+def test_source_bundle_requires_materialized_workspace_before_setup():
+    manifest = research_session.source_bundle_target_manifest(
+        artifact={
+            "schema": "cyberguard.source-bundle/v1",
+            "filename": "product.tar.gz",
+            "digest": "a" * 64,
+            "upload_bytes": 512,
+            "payload_digest": "b" * 64,
+            "payload_bytes": 2048,
+            "expanded_bytes": 1024,
+            "file_count": 4,
+            "member_count": 5,
+            "stripped_root": "product",
+        },
+        authorization_basis="customer_authorized",
+        authorization_confirmed=True,
+        scope_note="Customer-provided source snapshot",
+        actor="operator",
+    )
+    outputs = {
+        "node_sut_name": "nv-sut",
+        "node_sut_state": "running",
+        "node_sut_sut_source": "/opt/sut",
+    }
+
+    passed = research_session.evaluate_preflight(
+        outputs, manifest, include_attacker=False, auto_build=False
+    )
+    assert passed["ready"] is True
+    assert passed["next"] == "service_setup"
+
+    missing = research_session.evaluate_preflight(
+        {key: value for key, value in outputs.items() if key != "node_sut_sut_source"},
+        manifest,
+        include_attacker=False,
+        auto_build=False,
+    )
+    workspace = next(c for c in missing["checks"] if c["id"] == "workspace")
+    assert workspace["required"] is True
+    assert workspace["ok"] is False
+    assert "workspace" in missing["failed_checks"]

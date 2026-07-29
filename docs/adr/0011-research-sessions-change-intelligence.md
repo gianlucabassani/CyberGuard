@@ -58,11 +58,21 @@ The provider preserves native image startup—even for distroless artifacts—an
 treats an early exit as a failed preflight instead of changing behavior with a
 shell keepalive. Packaged images skip source-workspace and configurator checks.
 
+Local source-bundle intake is a content-addressed two-step flow. The API streams
+and bounds tar/tar.gz uploads, rejects traversal, links, special/sparse files,
+embedded Git metadata and archive bombs, then stores both the exact-upload digest
+and a sanitized canonical-tar digest atomically. It does not extract on the host.
+The worker resolves only by digest, verifies the canonical payload, transfers it
+through the Docker API into an arena-owned volume using a networkless helper, and
+creates a safe Git baseline. Bundle build/install activity remains inside the
+consent-gated target setup session.
+
 ## Consequences
 
 The first implementation supports Git-backed docker-local workspaces, immutable
-Git intake, and public OCI digest intake. Providers that cannot implement the
-primitive fail explicitly. Closed-source research next requires immutable binary/installer intake,
+Git intake, public OCI digest intake, and immutable local source-bundle intake.
+Providers that cannot implement the primitive fail explicitly. Closed-source
+research next requires immutable binary/installer intake,
 before/after filesystem manifests and a snapshot-capable local VM provider; it
 must not be simulated with a source diff.
 

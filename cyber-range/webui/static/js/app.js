@@ -1964,24 +1964,33 @@
     const targetType = document.getElementById("wiz-target-type");
     const gitFields = document.getElementById("wiz-git-fields");
     const ociFields = document.getElementById("wiz-oci-fields");
+    const bundleFields = document.getElementById("wiz-bundle-fields");
     const repoInput = document.getElementById("wiz-repo");
     const imageInput = document.getElementById("wiz-image");
+    const bundleInput = document.getElementById("wiz-bundle");
+    const artifactDigest = document.getElementById("wiz-artifact-digest");
     const setupControls = document.getElementById("wiz-setup-controls");
     const setupHelp = document.getElementById("wiz-setup-help");
     let step = 1;
     const ports = () => (document.getElementById("wiz-ports").value.match(/\d+/g) || []).map(Number).slice(0, 8);
     const isOci = () => targetType.value === "oci";
+    const isBundle = () => targetType.value === "bundle";
 
     function syncTargetType() {
       const oci = isOci();
-      gitFields.hidden = oci;
+      const bundle = isBundle();
+      gitFields.hidden = oci || bundle;
       ociFields.hidden = !oci;
-      repoInput.required = !oci;
+      bundleFields.hidden = !bundle;
+      repoInput.required = !oci && !bundle;
       imageInput.required = oci;
+      bundleInput.required = bundle;
       setupControls.hidden = oci;
       setupHelp.textContent = oci
         ? "OCI targets require no configurator: Nidavellir runs the image's native entrypoint exactly as published, then preflight verifies that the target remains healthy."
-        : "Bringing a Git target up needs a configurator session on the victim. Nothing writes/configures the box without it, and it is time-boxed, step-budgeted, and its egress is revoked before the engagement.";
+        : (bundle
+          ? "The validated bundle is mounted into a disposable Ubuntu target. Setup runs there—not in the control plane—and is time-boxed, step-budgeted, and fully traced."
+          : "Bringing a Git target up needs a configurator session on the victim. Nothing writes/configures the box without it, and it is time-boxed, step-budgeted, and its egress is revoked before the engagement.");
     }
 
     const show = (n) => {
@@ -2005,6 +2014,7 @@
     function review() {
       const msg = document.getElementById("wiz-msg");
       const recap = document.getElementById("wiz-recap");
+      launch.disabled = true;
       msg.className = "import-msg"; msg.textContent = "Validating…";
       const body = {
         instance_id: document.getElementById("wiz-name").value.trim() || "wizard-preview",
@@ -2013,14 +2023,21 @@
         ref: document.getElementById("wiz-ref").value.trim() || null,
         image: document.getElementById("wiz-image").value.trim(),
         platform: document.getElementById("wiz-platform").value,
+        artifact_digest: artifactDigest.value,
+        setup_mode: document.getElementById("wiz-mode").value,
+        setup_egress: document.getElementById("wiz-egress").checked,
+        time_box_seconds: +document.getElementById("wiz-tb").value,
+        command_budget: +document.getElementById("wiz-budget").value,
         ports: ports(),
         include_attacker: document.getElementById("wiz-atk").checked,
         authorization_basis: document.getElementById("wiz-auth-basis").value,
         authorization_confirmed: document.getElementById("wiz-auth-confirmed").checked,
         scope_note: document.getElementById("wiz-scope-note").value.trim() || null,
       };
+      const bundleName = bundleInput.files.length ? bundleInput.files[0].name : "no archive";
       const recapRows = [
-        ["Target", isOci() ? body.image : body.repo + (body.ref ? " @ " + body.ref : "")],
+        ["Target", isOci() ? body.image : (isBundle() ? bundleName :
+          body.repo + (body.ref ? " @ " + body.ref : ""))],
         ["Platform", isOci() ? body.platform : "provider native"],
         ["Ports", body.ports.length ? body.ports.join(", ") : "—"],
         ["Attacker foothold", body.include_attacker ? "Kali" : "none"],
@@ -2035,7 +2052,9 @@
       ];
       recap.innerHTML = recapRows.map((r) =>
         '<div class="wiz-recap__row"><dt>' + escapeHtml(r[0]) + '</dt><dd class="mono">' + escapeHtml(String(r[1])) + '</dd></div>').join("");
-      postJson("/api/arenas/sut/preview", body).then(({ status, data }) => {
+
+      function sendPreview() {
+        postJson("/api/arenas/sut/preview", body).then(({ status, data }) => {
         if (status === 200 && data.valid) {
           renderSpecTopology("wiz-topo", data.topology);
           const w = (data.warnings || []).length ? "  ⚠ " + data.warnings.join("; ") : "";
@@ -2043,19 +2062,58 @@
           const commit = data.target_manifest && data.target_manifest.resolved_ref;
           msg.textContent = "Valid ✓ " + (data.summary ? data.summary.nodes + " node(s)" : "") +
             (commit ? " · pinned " + commit.slice(0, 12) : "") + w;
+          launch.disabled = false;
         } else {
           renderSpecTopology("wiz-topo", null);
           msg.className = "import-msg err";
           msg.textContent = "Invalid: " + (data.errors ? data.errors.join("; ") : (data.error || data.detail || ("HTTP " + status)));
         }
-      }).catch(() => { msg.className = "import-msg err"; msg.textContent = "Preview request failed."; });
+        }).catch(() => {
+          msg.className = "import-msg err";
+          msg.textContent = "Preview request failed.";
+        });
+      }
+
+      if (!isBundle() || body.artifact_digest) {
+        sendPreview();
+        return;
+      }
+      const selected = bundleInput.files[0];
+      if (!selected) {
+        msg.className = "import-msg err";
+        msg.textContent = "Select a source archive.";
+        return;
+      }
+      msg.textContent = "Uploading and validating source bundle…";
+      const formData = new FormData();
+      formData.append("file", selected);
+      fetch("/api/targets/source-bundles", {
+        method: "POST",
+        headers: { "X-CSRFToken": csrfToken() },
+        body: formData,
+      })
+        .then((response) => response.json().then((data) => ({ status: response.status, data })))
+        .then(({ status, data }) => {
+          if (status !== 200 || !data.artifact) {
+            msg.className = "import-msg err";
+            msg.textContent = "Bundle rejected: " + (data.error || ("HTTP " + status));
+            return;
+          }
+          body.artifact_digest = data.artifact.digest;
+          artifactDigest.value = data.artifact.digest;
+          sendPreview();
+        })
+        .catch(() => {
+          msg.className = "import-msg err";
+          msg.textContent = "Bundle upload failed.";
+        });
     }
 
     next.addEventListener("click", () => {
       // Step 1 needs a valid name + active target field before advancing.
       if (step === 1) {
         const name = document.getElementById("wiz-name");
-        const target = isOci() ? imageInput : repoInput;
+        const target = isOci() ? imageInput : (isBundle() ? bundleInput : repoInput);
         const auth = document.getElementById("wiz-auth-confirmed");
         if (!name.reportValidity() || !target.reportValidity() || !auth.reportValidity()) return;
       }
@@ -2063,6 +2121,7 @@
     });
     back.addEventListener("click", () => show(Math.max(step - 1, 1)));
     targetType.addEventListener("change", syncTargetType);
+    bundleInput.addEventListener("change", () => { artifactDigest.value = ""; });
     syncTargetType();
     show(1);
   }

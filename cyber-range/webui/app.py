@@ -19,6 +19,9 @@ from flask import (
 from flask_wtf import CSRFProtect
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = int(
+    os.getenv("WEBUI_MAX_UPLOAD_BYTES", str(34 * 1024 * 1024))
+)
 # Never hardcode the secret: it signs session cookies/flash messages.
 app.secret_key = os.getenv("SECRET_KEY", "dev-insecure-change-me")
 csrf = CSRFProtect(app)
@@ -535,12 +538,49 @@ def sut_preview_proxy():
         payload["image"] = (body.get("image") or "").strip()
         payload["platform"] = body.get("platform") or "linux/amd64"
         endpoint = "/arenas/oci/preview"
+    elif target_type == "bundle":
+        payload["artifact_digest"] = (body.get("artifact_digest") or "").strip()
+        payload["setup_mode"] = body.get("setup_mode") or "operator"
+        payload["setup_egress"] = bool(body.get("setup_egress", True))
+        payload["time_box_seconds"] = body.get("time_box_seconds") or 1800
+        payload["command_budget"] = body.get("command_budget") or 50
+        endpoint = "/arenas/source-bundle/preview"
     else:
         payload["repo"] = (body.get("repo") or "").strip()
         payload["ref"] = (body.get("ref") or "").strip() or None
         endpoint = "/arenas/sut/preview"
     data, code = _api_post(endpoint, payload)
     return jsonify(data), code
+
+
+@app.route("/api/targets/source-bundles", methods=["POST"])
+def source_bundle_upload_proxy():
+    """Stream one local bundle to the orchestrator's bounded intake endpoint."""
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "select a .tar, .tar.gz, or .tgz source bundle"}), 422
+    try:
+        response = requests.post(
+            f"{API_URL}/targets/source-bundles",
+            files={
+                "file": (
+                    upload.filename,
+                    upload.stream,
+                    upload.mimetype or "application/octet-stream",
+                )
+            },
+            headers=API_HEADERS,
+            timeout=60,
+        )
+    except requests.RequestException:
+        return jsonify({"error": "orchestrator unreachable"}), 502
+    try:
+        data = response.json()
+    except ValueError:
+        data = {}
+    if response.status_code != 200:
+        return jsonify({"error": _api_error(response)}), response.status_code
+    return jsonify(data), 200
 
 
 @app.route("/scenarios")
@@ -690,6 +730,49 @@ def build_sut():
         payload["platform"] = f.get("platform") or "linux/amd64"
         endpoint = "/arenas/oci"
         source = payload["image"]
+    elif target_type == "bundle":
+        artifact_digest = (f.get("artifact_digest") or "").strip()
+        if not artifact_digest:
+            upload = request.files.get("file")
+            if upload is None or not upload.filename:
+                flash("Source-bundle launch rejected: select an archive.", "warning")
+                return redirect(url_for("wizard"))
+            try:
+                intake_response = requests.post(
+                    f"{API_URL}/targets/source-bundles",
+                    files={
+                        "file": (
+                            upload.filename,
+                            upload.stream,
+                            upload.mimetype or "application/octet-stream",
+                        )
+                    },
+                    headers=API_HEADERS,
+                    timeout=60,
+                )
+            except requests.RequestException as exc:
+                flash(f"Source-bundle upload failed: {exc}", "danger")
+                return redirect(url_for("wizard"))
+            if intake_response.status_code != 200:
+                flash(
+                    f"Source-bundle upload rejected: {_api_error(intake_response)}",
+                    "warning",
+                )
+                return redirect(url_for("wizard"))
+            artifact_digest = intake_response.json()["artifact"]["digest"]
+        payload["artifact_digest"] = artifact_digest
+        payload["setup_mode"] = f.get("setup_mode", "operator")
+        payload["setup_egress"] = f.get("setup_egress") == "on"
+        if f.get("time_box_seconds"):
+            payload["time_box_seconds"] = int(
+                re.sub(r"\D", "", f["time_box_seconds"]) or 0
+            )
+        if f.get("command_budget"):
+            payload["command_budget"] = int(
+                re.sub(r"\D", "", f["command_budget"]) or 0
+            )
+        endpoint = "/arenas/source-bundle"
+        source = request.files.get("file").filename if request.files.get("file") else artifact_digest
     else:
         payload["repo"] = (f.get("repo") or "").strip()
         payload["ref"] = (f.get("ref") or "").strip() or None
