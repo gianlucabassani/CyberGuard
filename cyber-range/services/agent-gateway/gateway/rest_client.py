@@ -7,6 +7,7 @@ audit authority. The HTTP layer is injectable (`http=`) so tool logic is
 unit-tested with a fake transport — no live server required.
 """
 import logging
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,39 @@ class RestClient:
         if stance:
             body["stance"] = stance
         return self._request("POST", f"/arenas/{arena_id}/agent-session", api_key, json=body)
+
+    # --- source change intelligence ------------------------------------------
+
+    def list_workspaces(self, api_key: str, arena_id: str) -> dict:
+        return self._request("GET", f"/arenas/{arena_id}/workspaces", api_key)
+
+    def workspace_diff(
+        self,
+        api_key: str,
+        arena_id: str,
+        node: str,
+        *,
+        base: str = "HEAD",
+        path: str | None = None,
+        context_lines: int = 3,
+        start_line: int = 0,
+        max_lines: int = 300,
+    ) -> dict:
+        query = {
+            "base": base,
+            "context_lines": int(context_lines),
+            "start_line": int(start_line),
+            "max_lines": int(max_lines),
+        }
+        if path:
+            query["path"] = path
+        encoded_node = urllib.parse.quote(node, safe="")
+        return self._request(
+            "GET",
+            f"/arenas/{arena_id}/workspaces/{encoded_node}/diff?"
+            f"{urllib.parse.urlencode(query)}",
+            api_key,
+        )
 
     # --- configurator stance (SUT setup phase) --------------------------------
 

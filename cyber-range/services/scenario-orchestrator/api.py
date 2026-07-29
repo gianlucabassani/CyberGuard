@@ -1,7 +1,7 @@
 """
 FastAPI REST Layer - Production Architecture (Redis/Celery)
 """
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -1043,9 +1043,15 @@ def destroy(
     instance_id: str,
     principal: Principal = Depends(require_principal),
 ):
-    """Queue destruction via Celery"""
+    """Queue destruction via Celery.
+
+    Operators may destroy any arena.  Agent principals may only tear down an
+    arena to which they hold an active binding; this keeps the shared lifecycle
+    MCP tool from becoming a cross-arena kill primitive.
+    """
     if not db.get_deployment(instance_id):
         raise HTTPException(status_code=404, detail="Instance not found")
+    _require_binding(principal, instance_id, bindings.CAP_LIFECYCLE)
 
     try:
         db.update_deployment(
@@ -1077,6 +1083,7 @@ def delete_deployment_record(
     principal: Principal = Depends(require_principal),
 ):
     """Remove a terminal (destroyed/failed) lab record from history."""
+    _require_operator(principal)
     data = db.get_deployment(instance_id)
     if not data:
         raise HTTPException(status_code=404, detail="Instance not found")
@@ -1104,6 +1111,7 @@ def purge_deployment_records(
     principal: Principal = Depends(require_principal),
 ):
     """Remove ALL terminal (destroyed/failed) lab records from history."""
+    _require_operator(principal)
     deleted = db.purge_deployments(DELETABLE_STATES, actor=principal.name)
     logger.info(
         f"Purged {deleted} archived deployment record(s) "
@@ -1791,6 +1799,176 @@ def _nodes_and_footholds(record) -> tuple[set[str], set[str]]:
     return setup_phase.derive_nodes_footholds(_arena_node_outputs(record))
 
 
+def _workspace_catalog(record: dict) -> dict[str, dict]:
+    """Provider-discovered source workspaces, keyed by target node.
+
+    Paths never come from an HTTP caller.  Writable SUT checkouts live on the
+    target node; explicitly white-box checkouts are isolated research copies on
+    an attacker foothold. Keeping both candidates lets authorization select the
+    least-privileged view for each stance.
+    """
+    outputs = _arena_node_outputs(record)
+    _, footholds = setup_phase.derive_nodes_footholds(outputs)
+    foothold = sorted(footholds)[0] if footholds else None
+    catalog: dict[str, dict] = {}
+    for key, value in outputs.items():
+        if not isinstance(value, str) or not value.startswith("/"):
+            continue
+        if key.startswith("node_") and key.endswith("_sut_source"):
+            node = key[len("node_"):-len("_sut_source")]
+            catalog.setdefault(node, {})["sut"] = {
+                "kind": "sut",
+                "node": node,
+                "exec_node": node,
+                "source_path": value,
+                "writable": True,
+                "whitebox": bool(outputs.get(f"node_{node}_whitebox")),
+            }
+        elif key.startswith("node_") and key.endswith("_whitebox_source") and foothold:
+            node = key[len("node_"):-len("_whitebox_source")]
+            catalog.setdefault(node, {})["whitebox"] = {
+                "kind": "whitebox",
+                "node": node,
+                "exec_node": foothold,
+                "source_path": value,
+                # Dedicated agent research copy: writable from the foothold but
+                # not mounted into or executed by the running target.
+                "writable": True,
+                "whitebox": True,
+            }
+    return catalog
+
+
+def _accessible_workspaces(
+    record: dict, principal: Principal, binding: dict | None
+) -> list[dict]:
+    """Select the workspace representation allowed for this principal.
+
+    Attackers only see the explicitly white-box research copy. Configurators see
+    the writable setup checkout. An operator, or an agent's unrestricted personal
+    sandbox binding, gets the writable checkout when available and otherwise
+    the white-box view.
+    """
+    stance = binding.get("stance") if binding is not None else None
+    operator = principal.role in OPERATOR_ROLES
+    result = []
+    for node, candidates in sorted(_workspace_catalog(record).items()):
+        selected = None
+        access = None
+        if operator or stance is None:
+            selected = candidates.get("sut") or candidates.get("whitebox")
+            access = "operator" if operator else "sandbox"
+        elif stance == "configurator":
+            selected = candidates.get("sut")
+            access = "setup"
+        elif stance == "attacker":
+            selected = candidates.get("whitebox")
+            access = "whitebox"
+        if selected:
+            result.append({**selected, "access": access})
+    return result
+
+
+def _workspace_public_view(workspace: dict) -> dict:
+    return {
+        "kind": workspace["kind"],
+        "node": workspace["node"],
+        "source_path": workspace["source_path"],
+        "writable": workspace["writable"],
+        "whitebox": workspace["whitebox"],
+        "access": workspace["access"],
+    }
+
+
+@app.get("/arenas/{instance_id}/workspaces")
+def list_arena_workspaces(
+    instance_id: str,
+    principal: Principal = Depends(require_principal),
+):
+    """List Git workspaces the caller may inspect without exposing black-box source."""
+    record = db.get_deployment(instance_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Arena not found")
+    if record.get("status") != "active":
+        raise HTTPException(
+            status_code=409, detail=f"Arena is '{record.get('status')}', not active"
+        )
+    binding = _require_binding(principal, instance_id, bindings.CAP_WORKSPACE)
+    workspaces = [
+        _workspace_public_view(item)
+        for item in _accessible_workspaces(record, principal, binding)
+    ]
+    return {"arena_id": instance_id, "workspaces": workspaces}
+
+
+@app.get("/arenas/{instance_id}/workspaces/{workspace_node}/diff")
+def get_arena_workspace_diff(
+    instance_id: str,
+    workspace_node: str,
+    base: str = Query(default="HEAD", min_length=4, max_length=80),
+    path: str | None = Query(default=None, max_length=512),
+    context_lines: int = Query(default=3, ge=0, le=20),
+    start_line: int = Query(default=0, ge=0),
+    max_lines: int = Query(default=300, ge=1, le=500),
+    principal: Principal = Depends(require_principal),
+):
+    """Return one bounded, read-only Git diff page for an authorized workspace."""
+    record = db.get_deployment(instance_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Arena not found")
+    if record.get("status") != "active":
+        raise HTTPException(
+            status_code=409, detail=f"Arena is '{record.get('status')}', not active"
+        )
+    binding = _require_binding(principal, instance_id, bindings.CAP_WORKSPACE)
+    visible = {
+        item["node"]: item
+        for item in _accessible_workspaces(record, principal, binding)
+    }
+    workspace = visible.get(workspace_node)
+    if workspace is None:
+        # Do not reveal whether the node has hidden black-box source.
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    orch = Orchestrator(provider_name=record.get("provider"))
+    try:
+        result = orch.workspace_diff(
+            instance_id,
+            workspace["exec_node"],
+            workspace["source_path"],
+            base=base,
+            path=path,
+            context_lines=context_lines,
+            start_line=start_line,
+            max_lines=max_lines,
+        )
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=str(e)) from e
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"workspace inspection failed: {result.get('error', 'unknown error')}",
+        )
+
+    # Diff contents may contain secrets or exploit material, so audit metadata
+    # only. The user/agent gets the content in this response, not in the event log.
+    db.record_event(
+        instance_id,
+        "workspace_diff",
+        {
+            "node": workspace_node,
+            "base": base,
+            "path": path,
+            "changed_file_count": result.get("changed_file_count", 0),
+            "start_line": start_line,
+            "returned_lines": result.get("returned_lines", 0),
+        },
+        actor=principal.name,
+    )
+    result["workspace"] = _workspace_public_view(workspace)
+    return result
+
+
 class SetupStartRequest(BaseModel):
     # Victim scope; default = all non-foothold nodes. Foothold/attacker nodes are
     # never configurable (the configurator is victim-scoped by design).
@@ -2232,8 +2410,9 @@ def setup_generate_proposals(
             repo_introspect.introspect(prearm["repo"], prearm.get("ref"))
         )
     # The SUT source is cloned read-write into the victim (node_<n>_sut_source);
-    # white-box sources are read-only mounts. Either tells the model WHERE the
-    # project to bring up lives — without it the model has nothing real to set up.
+    # white-box sources are target-separated research copies. Either tells the
+    # model WHERE the project to bring up lives — without it the model has
+    # nothing real to set up.
     brief = {
         "victim_nodes": sess["nodes"],
         "repo": prearm.get("repo"),
@@ -2500,10 +2679,25 @@ def _match_vuln_id(node, cwe, manifest, claimed) -> str | None:
 
 
 def _finding_events(instance_id: str) -> list[dict]:
-    return [
-        e for e in db.list_events(lab_id=instance_id, limit=EVENTS_MAX_LIMIT)
-        if e.get("type") == "finding"
-    ]
+    return db.list_events(lab_id=instance_id, limit=None, types=("finding",))
+
+
+def _latest_finding_verdicts(instance_id: str) -> dict[str, str]:
+    """Newest operator verdict per finding id.
+
+    Events are returned newest-first, so ``setdefault`` makes the ordering
+    deterministic even when two database timestamps have identical precision.
+    """
+    verdicts: dict[str, str] = {}
+    for event in db.list_events(
+        lab_id=instance_id, limit=None, types=("finding_verification",)
+    ):
+        payload = event.get("payload") or {}
+        finding_id = payload.get("finding_id")
+        verdict = payload.get("verdict")
+        if finding_id and verdict:
+            verdicts.setdefault(finding_id, verdict)
+    return verdicts
 
 
 # Container ports we prefer to probe when a victim publishes several (a web
@@ -2692,9 +2886,11 @@ def _record_finding(instance_id, record, req: "FindingRequest", *, actor: str,
     and ack'd but never scored by CWE (crash-oracle + operator verification carry
     the evidence instead)."""
     manifest = scenarios.scenario_manifest(record.get("scenario")) or []
+    verdicts = _latest_finding_verdicts(instance_id)
     claimed = {
         (e.get("payload") or {}).get("matched_vuln_id")
         for e in _finding_events(instance_id)
+        if verdicts.get((e.get("payload") or {}).get("finding_id")) != "refuted"
     }
     claimed.discard(None)
     matched_id = _match_vuln_id(req.node, req.cwe, manifest, claimed)
@@ -2709,7 +2905,7 @@ def _record_finding(instance_id, record, req: "FindingRequest", *, actor: str,
             "title": req.title[:256],
             "cwe": normalize_cwe(req.cwe),
             "node": req.node,
-            "evidence": (req.evidence or "")[:1024],
+            "evidence": (req.evidence or "")[:4096],
             # Reproducible PoC (agent- or operator-authored) a human runs to
             # verify — agent-visible, surfaced next to the confirm/refute controls.
             "poc": (req.poc or "")[:8192] or None,
@@ -2819,7 +3015,10 @@ def _score_report(instance_id: str, record: dict, mode: str | None) -> dict:
     the score + eval-export endpoints). Applies passive crash correlation (a
     finding on a node the crash oracle flagged is confirmed by that fault)."""
     manifest = scenarios.scenario_manifest(record.get("scenario")) or []
-    events = db.list_events(lab_id=instance_id, limit=EVENTS_MAX_LIMIT)
+    # Scoring is an evaluation result, not a paginated UI view: it must consume
+    # the complete run or long agent sessions silently lose early findings,
+    # signals, verification verdicts, and step/wall-clock metrics.
+    events = db.list_events(lab_id=instance_id, limit=None)
     findings = [e["payload"] for e in events
                 if e.get("type") == "finding" and isinstance(e.get("payload"), dict)]
     signals = [e["payload"] for e in events
@@ -2843,11 +3042,9 @@ def _score_report(instance_id: str, record: dict, mode: str | None) -> dict:
             continue
         p = e.get("payload") or {}
         fid = p.get("finding_id")
-        if not fid:
-            continue
-        prev = verdicts.get(fid)
-        if prev is None or str(e.get("ts") or "") >= str(prev.get("_ts") or ""):
-            verdicts[fid] = {**p, "_ts": e.get("ts")}
+        if fid:
+            # ``events`` is newest-first; the first verdict is authoritative.
+            verdicts.setdefault(fid, p)
     for f in findings:
         v = verdicts.get(f.get("finding_id"))
         if not v:
@@ -2905,7 +3102,7 @@ def arena_eval_export(
         record=record,
         scenario_meta=_scenario_meta(record.get("scenario")),
         score_report=report,
-        events=db.list_events(lab_id=instance_id, limit=EVENTS_MAX_LIMIT),
+        events=db.list_events(lab_id=instance_id, limit=None),
     )
 
 

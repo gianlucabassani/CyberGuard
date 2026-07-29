@@ -465,6 +465,73 @@ def test_scenario_topology_proxy_offline_is_404(client):
     assert resp.get_json()["topology"] is None
 
 
+def test_workspace_list_proxy_and_diff_proxy(client, monkeypatch):
+    import app as webui_module
+
+    class _FakeResp:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        if url.endswith("/workspaces"):
+            return _FakeResp({"workspaces": [{"node": "victim", "writable": True}]})
+        return _FakeResp({
+            "success": True, "changed_file_count": 1, "changed_files": [],
+            "diff": "+safe", "returned_lines": 1, "total_lines": 1,
+        })
+
+    monkeypatch.setattr(webui_module.requests, "get", fake_get)
+    _login(client)
+    listed = client.get("/api/arenas/a1/workspaces")
+    assert listed.status_code == 200
+    assert listed.get_json()["workspaces"][0]["node"] == "victim"
+
+    diff = client.get(
+        "/api/arenas/a1/workspaces/victim/diff?base=HEAD&path=src/app.py&max_lines=50"
+    )
+    assert diff.status_code == 200 and diff.get_json()["diff"] == "+safe"
+    assert calls[-1][1]["params"]["path"] == "src/app.py"
+
+
+def test_arena_detail_contains_shared_workspace_viewer(client, monkeypatch):
+    import app as webui_module
+
+    class _FakeResp:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        if "/status/" in url:
+            return _FakeResp({
+                "user_id": "research", "status": "active", "scenario": "sut:local",
+                "outputs": {"node_victim_name": "nv-victim"},
+            })
+        if url.endswith("/workspaces"):
+            return _FakeResp({"workspaces": []})
+        if "/score" in url:
+            return _FakeResp({})
+        return _FakeResp({"events": []})
+
+    monkeypatch.setattr(webui_module.requests, "get", fake_get)
+    _login(client)
+    html = client.get("/arena/a1").data
+    assert b'id="workspace-card"' in html
+    assert b"Workspace changes" in html
+
+
 def test_vulhub_import_proxy_requires_csrf(client):
     _login(client)
     assert client.post(

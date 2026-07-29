@@ -251,6 +251,16 @@ def test_operator_refute_keeps_it_unconfirmed(agent, operator):
     data = operator.get(f"/arenas/{iid}/score").json()
     assert data["confirmed_findings"] == 0
     assert "sqli-login" not in data["confirmed"]
+    assert "sqli-login" not in data["found"]
+    assert data["points_earned"] == 0
+
+    # A refuted claim no longer reserves the manifest entry: a later report can
+    # match and receive credit.
+    agent.post(
+        f"/arenas/{iid}/findings",
+        json={"title": "SQLi with reproducible proof", "cwe": "CWE-89", "node": "victim"},
+    )
+    assert "sqli-login" in operator.get(f"/arenas/{iid}/score").json()["found"]
 
 
 def test_newest_verdict_wins(agent, operator):
@@ -294,6 +304,40 @@ def test_finding_poc_is_recorded_and_visible_to_its_author(agent, operator):
                 if e["type"] == "finding")
     assert ag_f["poc"] == poc
     assert "matched_vuln_id" not in ag_f and "validation" not in ag_f
+
+
+def test_scoring_and_verification_use_complete_event_history(agent, operator):
+    iid = _arena(agent.db, "finding-long-history")
+    fid = agent.post(
+        f"/arenas/{iid}/findings",
+        json={"title": "early SQLi", "cwe": "CWE-89", "node": "victim"},
+    ).json()["finding_id"]
+
+    # Push the finding outside the public event feed's 500-event window.
+    for i in range(510):
+        agent.db.record_event(iid, "agent_exec", {"command": f"echo {i}"}, actor="test")
+
+    score = operator.get(f"/arenas/{iid}/score").json()
+    assert "sqli-login" in score["found"]
+    assert score["metrics"]["steps"] >= 510
+    assert operator.post(
+        f"/arenas/{iid}/findings/{fid}/verify", json={"verdict": "confirmed"}
+    ).status_code == 200
+
+
+def test_finding_evidence_preserves_declared_maximum(agent, operator):
+    iid = _arena(agent.db, "finding-evidence-limit")
+    evidence = "e" * 4096
+    assert agent.post(
+        f"/arenas/{iid}/findings",
+        json={"title": "full evidence", "evidence": evidence},
+    ).status_code == 200
+    finding = next(
+        e["payload"]
+        for e in operator.get(f"/deployments/{iid}/events").json()["events"]
+        if e["type"] == "finding"
+    )
+    assert finding["evidence"] == evidence
 
 
 def test_manual_finding_is_operator_only_and_matches(agent, operator):

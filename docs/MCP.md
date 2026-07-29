@@ -54,14 +54,26 @@ orchestrator re-checks the stance's capability on every call (defence in depth).
 
 | Stance | Purpose | Stance tools |
 |---|---|---|
-| **attacker** | offensive testing from the foothold | `get_topology`, `list_targets`, `run_command`, `report_finding` |
+| **attacker** | offensive testing from the foothold | `get_topology`, `list_targets`, `run_command`, `workspace_status`, `workspace_diff`, `report_finding` |
 | **defender** | detection over the event feed | `get_topology`, `query_events` |
 | **mitm** | in-path traffic observation | `get_topology`, `observe_traffic` |
-| **configurator** | bring a software-under-test up before the engagement | `get_setup_brief`, `propose_setup_step`, `await_setup_step`, `run_setup_step`, `upload_file`, `finish_setup` |
+| **configurator** | bring a software-under-test up before the engagement | `get_setup_brief`, `workspace_status`, `workspace_diff`, `propose_setup_step`, `await_setup_step`, `run_setup_step`, `upload_file`, `finish_setup` |
 | **operator** | author scenarios with a connected model | `scaffold_scenario`, `import_scenario` |
 
 Every stance also has the lifecycle tools: `announce_agent`, `get_briefing`,
 `arena_status`, `list_scenarios`, `deploy_arena`, `destroy_arena`.
+
+### Workspace changes
+
+`workspace_status(arena_id)` lists only source workspaces authorized for the
+binding: an attacker receives explicitly declared white-box source mounted
+as a writable research copy on its foothold, separate from the running target;
+a configurator receives the writable SUT checkout.
+`workspace_diff(arena_id, node, base="HEAD", path=null, context_lines=3,
+start_line=0, max_lines=300)` returns changed-file status and one bounded diff
+page. Follow `next_start_line` for large patches. Untracked names are reported,
+but their content is not read until tracked, preventing an untrusted symlink from
+turning the viewer into an arbitrary-file reader.
 
 ## Reporting a finding
 

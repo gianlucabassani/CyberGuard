@@ -74,6 +74,19 @@ class _FakeRestClient:
         self.calls.append(("announce_agent", api_key, arena_id, model, provider, stance))
         return {"recorded": True}
 
+    def list_workspaces(self, api_key, arena_id):
+        self.calls.append(("list_workspaces", api_key, arena_id))
+        return {"arena_id": arena_id, "workspaces": [
+            {"node": "web", "whitebox": True, "writable": False}
+        ]}
+
+    def workspace_diff(self, api_key, arena_id, node, **options):
+        self.calls.append(("workspace_diff", api_key, arena_id, node, options))
+        return {
+            "success": True, "node": node, "changed_file_count": 1,
+            "returned_lines": 2, "diff": "-old\n+new", "next_start_line": None,
+        }
+
     def list_events(self, api_key, arena_id, limit=100):
         self.calls.append(("list_events", api_key, arena_id, limit))
         return {"events": [
@@ -367,7 +380,22 @@ def test_attacker_session_also_registers_the_attacker_tools():
 
     mcp = build_server(GatewayConfig(env={"NIDAVELLIR_STANCE": "attacker"}))
     names = {t.name for t in asyncio.run(mcp.list_tools())}
-    assert {"run_command", "list_targets", "get_topology", "report_finding"} <= names
+    assert {"run_command", "list_targets", "get_topology", "report_finding",
+            "workspace_status", "workspace_diff"} <= names
+
+
+def test_workspace_tools_proxy_and_are_stance_gated():
+    ctx = _ctx(stance=Stance.attacker)
+    assert tools.workspace_status(ctx, "a1")["workspaces"][0]["node"] == "web"
+    result = tools.workspace_diff(
+        ctx, "a1", "web", path="src/app.py", start_line=300, max_lines=100
+    )
+    assert result["changed_file_count"] == 1
+    call = next(c for c in ctx.client.calls if c[0] == "workspace_diff")
+    assert call[3] == "web"
+    assert call[4]["path"] == "src/app.py" and call[4]["start_line"] == 300
+    with pytest.raises(ToolNotAllowed):
+        tools.workspace_status(_ctx(stance=Stance.defender), "a1")
 
 
 def test_mitm_session_registers_observe_tools_only():
@@ -541,7 +569,8 @@ def test_defender_session_registers_query_events_not_run_command():
 def test_configurator_stance_owns_only_setup_tools():
     cfg = Session("k", Stance.configurator)
     for t in ("get_setup_brief", "propose_setup_step", "await_setup_step",
-              "run_setup_step", "upload_file", "finish_setup"):
+              "run_setup_step", "upload_file", "finish_setup",
+              "workspace_status", "workspace_diff"):
         assert cfg.can_use(t)
     # NO attacker tools — the configurator is victim-scoped, not offensive
     assert not cfg.can_use("run_command")
@@ -560,7 +589,8 @@ def test_configurator_session_registers_its_tools():
                                           "NIDAVELLIR_GATEWAY_HOST": "127.0.0.1"}))
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert {"get_setup_brief", "propose_setup_step", "await_setup_step",
-            "run_setup_step", "upload_file", "finish_setup"} <= names
+            "run_setup_step", "upload_file", "finish_setup",
+            "workspace_status", "workspace_diff"} <= names
     # no attacker tools leak into the configurator stance
     assert "run_command" not in names and "report_finding" not in names
 

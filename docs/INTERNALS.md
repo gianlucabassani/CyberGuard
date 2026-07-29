@@ -127,7 +127,7 @@ Terraform skeletons (deferred — no live apply).
 - **SUT machinery.** `_build_service_image` (build from a remote git context, gated
   by `NIDAVELLIR_ALLOW_SOURCE_BUILD`), `_build_package_image` (apt-install a
   `service.package`), `verify_build_dockerfile` (the synthesis loop's build),
-  `_prepare_whitebox_sources` (read-only source mount into footholds),
+  `_prepare_whitebox_sources` (writable target-separated research copy in footholds),
   `set_node_egress` (open/close setup-time NAT), and `collect_monitor_signals` (the
   M2 collector — see §8).
 - **Outputs.** `_collect_outputs` emits flat `node_<name>_*` keys: container name,

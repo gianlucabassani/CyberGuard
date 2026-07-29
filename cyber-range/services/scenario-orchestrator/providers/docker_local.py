@@ -25,6 +25,7 @@ import shlex
 import shutil
 import subprocess  # nosec B404 — fixed argv (no shell), timeout, SSRF-guarded host
 import tempfile
+from pathlib import PurePosixPath
 
 import config
 import images
@@ -78,14 +79,25 @@ _PKG_TOKEN_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.+_-]*(=[a-zA-Z0-9.+:~_-]+)?$
 
 # White-box source access (SUT arenas, P2-10 safe half; ADR-0007). When a victim
 # node's service is `whitebox: true` AND has a `source`, the repo is cloned
-# (read-only, pinned to `ref`) into a per-arena docker volume and mounted
-# **read-only** into the foothold(s) at `/whitebox/<victim>` — the agent reads
-# the source while it tests the running service. Cloning runs nothing from the
-# repo (a `git clone` is not code execution — that's why read access is ungated,
-# unlike build-from-source). The clone helper has egress only to the git host
+# (pinned to `ref`) into a per-arena docker volume and mounted as a writable
+# **research copy** into the foothold(s) at `/whitebox/<victim>`. It is separate
+# from the running victim, so an agent may instrument/patch it and inspect a clean
+# diff without mutating the target. Cloning runs nothing from the repo (a `git
+# clone` is not code execution). The clone helper has egress only to the git host
 # during deploy; the volume is arena-labeled and reclaimed on destroy.
 _GIT_HELPER_IMAGE = os.getenv("NIDAVELLIR_GIT_HELPER_IMAGE", "alpine/git:latest")
 _WHITEBOX_MOUNT_BASE = "/whitebox"
+
+# Change intelligence is deliberately smaller than command execution: it is a
+# read-only evidence primitive used by both the Web UI and MCP.  Git is invoked
+# with fixed argv, repository hooks/pagers/external diff drivers are disabled,
+# and the provider bounds data before it crosses the container boundary.
+_WORKSPACE_BASE_RE = re.compile(
+    r"^(?:HEAD(?:[~^][0-9]{0,4})*|[0-9a-fA-F]{7,40})$"
+)
+_WORKSPACE_MAX_CONTEXT = 20
+_WORKSPACE_MAX_LINES = 500
+_WORKSPACE_RAW_CAP = 1024 * 1024
 
 
 def _as_git_remote(repo: str) -> str:
@@ -476,11 +488,13 @@ class DockerLocalProvider(RangeProvider):
         if environment:
             run_kwargs["environment"] = environment
 
-        # Mount white-box source read-only into the foothold so the agent can
-        # read it while testing the running service from here (SUT arenas).
+        # Mount white-box source as a writable *research copy* in the foothold.
+        # This dedicated volume is not used by the victim service: the agent can
+        # instrument or patch it and get a meaningful diff without changing the
+        # actual target under test.
         if whitebox and self._is_foothold(node):
             run_kwargs["volumes"] = {
-                vol: {"bind": f"{_WHITEBOX_MOUNT_BASE}/{victim}", "mode": "ro"}
+                vol: {"bind": f"{_WHITEBOX_MOUNT_BASE}/{victim}", "mode": "rw"}
                 for victim, vol in whitebox.items()
             }
 
@@ -796,7 +810,7 @@ class DockerLocalProvider(RangeProvider):
         return container
 
     def _prepare_whitebox_sources(self, instance_id, nodes, labels) -> dict:
-        """Clone each white-box node's source into a per-arena read-only volume.
+        """Clone each white-box node's source into a per-arena research volume.
 
         Returns ``{victim_node_name: volume_name}`` for the footholds to mount.
         A white-box node with no `service.source` keeps the prior behaviour (the
@@ -822,10 +836,10 @@ class DockerLocalProvider(RangeProvider):
     def _prepare_sut_sources(self, instance_id, nodes, labels) -> dict:
         """Clone each SUT node's repo read-WRITE into a per-arena volume (P2-10
         wizard). Returns ``{node_name: (volume_name, mount_path)}`` for `_run_node`
-        to mount. Unlike white-box (read-only into the foothold), the SUT source is
-        mounted **into the victim itself** so the configurator builds/runs it in
-        place. `git clone` runs nothing from the repo (read, not execution), so the
-        clone itself is ungated — the same reasoning as white-box source."""
+        to mount. Unlike the white-box research copy on the foothold, the SUT
+        source is mounted **into the victim itself** so the configurator
+        builds/runs it in place. `git clone` runs nothing from the repo (read,
+        not execution), so the clone itself is ungated."""
         mounts: dict[str, tuple[str, str]] = {}
         for node in nodes:
             clone = node.get("sut_clone")
@@ -1082,6 +1096,283 @@ class DockerLocalProvider(RangeProvider):
             "exit_code": exit_code,
             "stdout": self._decode(stdout),
             "stderr": self._decode(stderr),
+        }
+
+    @staticmethod
+    def _validate_workspace_path(path: str | None) -> str | None:
+        """Validate a caller-supplied pathspec without resolving it on the host.
+
+        The path is interpreted relative to the provider-discovered repository.
+        A leading dash is safe after Git's ``--`` separator, but absolute paths,
+        parent traversal and NUL bytes are not.
+        """
+        if path is None or path == "":
+            return None
+        if "\x00" in path:
+            raise ValueError("workspace path contains a NUL byte")
+        parsed = PurePosixPath(path)
+        if parsed.is_absolute() or ".." in parsed.parts:
+            raise ValueError("workspace path must stay inside the workspace")
+        normalized = str(parsed)
+        if normalized in ("", "."):
+            return None
+        return normalized
+
+    @staticmethod
+    def _workspace_exec(container, argv: list[str]) -> tuple[int, str, str]:
+        """Run fixed argv in a container and normalize Docker SDK result shapes."""
+        result = container.exec_run(
+            argv,
+            demux=True,
+            environment=[
+                "GIT_OPTIONAL_LOCKS=0",
+                "GIT_CONFIG_NOSYSTEM=1",
+                "GIT_CONFIG_GLOBAL=/dev/null",
+            ],
+        )
+        if hasattr(result, "exit_code"):
+            exit_code, output = result.exit_code, result.output
+        else:
+            exit_code, output = result
+        stdout, stderr = output if isinstance(output, tuple) else (output, None)
+
+        def decode(raw) -> str:
+            if not raw:
+                return ""
+            text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
+            return text[:_WORKSPACE_RAW_CAP]
+
+        return int(exit_code), decode(stdout), decode(stderr)
+
+    def _workspace_helper_exec(
+        self, container, argv: list[str], source_path: str
+    ) -> tuple[int, str, str]:
+        """Run Git from the provider helper when the target image has no Git.
+
+        Arbitrary SUT images should not need to carry our inspection tooling.
+        Locate the provider-created Docker volume mounted at ``source_path`` and
+        remount it read-only into a networkless short-lived git helper. Bind
+        mounts are intentionally refused so a deployment output cannot make the
+        helper read an arbitrary host path.
+        """
+        try:
+            container.reload()
+            mounts = (container.attrs or {}).get("Mounts") or []
+            mount = next(
+                (
+                    item for item in mounts
+                    if item.get("Destination") == source_path
+                    and item.get("Type") == "volume"
+                    and item.get("Name")
+                ),
+                None,
+            )
+            if mount is None:
+                return 127, "", (
+                    "git is unavailable in the target and its workspace is not "
+                    "a provider-managed Docker volume"
+                )
+            helper_path = "/workspace"
+            helper_argv = [
+                helper_path if token == source_path else token
+                for token in argv[1:]
+            ]
+            # Insert a helper-specific safe.directory after the existing config
+            # options. It is command-line configuration, never repository-owned.
+            helper_argv = [
+                "-c", f"safe.directory={helper_path}", *helper_argv
+            ]
+            raw = self.client.containers.run(
+                image=_GIT_HELPER_IMAGE,
+                entrypoint="git",
+                command=helper_argv,
+                volumes={mount["Name"]: {"bind": helper_path, "mode": "ro"}},
+                network_mode="none",
+                remove=True,
+                detach=False,
+                stdout=True,
+                stderr=True,
+                environment={
+                    "GIT_OPTIONAL_LOCKS": "0",
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "GIT_CONFIG_GLOBAL": "/dev/null",
+                },
+            )
+            text = (
+                raw.decode("utf-8", "replace")
+                if isinstance(raw, bytes) else str(raw or "")
+            )
+            return 0, text[:_WORKSPACE_RAW_CAP], ""
+        except Exception as e:
+            raw_stderr = getattr(e, "stderr", None)
+            stderr = (
+                raw_stderr.decode("utf-8", "replace")
+                if isinstance(raw_stderr, bytes)
+                else str(raw_stderr or e)
+            )
+            return int(getattr(e, "exit_status", 1) or 1), "", stderr[:_WORKSPACE_RAW_CAP]
+
+    def _workspace_git_exec(
+        self, container, argv: list[str], source_path: str
+    ) -> tuple[int, str, str]:
+        result = self._workspace_exec(container, argv)
+        if result[0] not in (126, 127):
+            return result
+        return self._workspace_helper_exec(container, argv, source_path)
+
+    @staticmethod
+    def _parse_porcelain_status(raw: str) -> list[dict]:
+        """Parse ``git status --porcelain=v1 -z`` into a stable bounded summary."""
+        fields = raw.split("\x00")
+        changed: list[dict] = []
+        idx = 0
+        while idx < len(fields):
+            entry = fields[idx]
+            idx += 1
+            if not entry:
+                continue
+            if len(entry) < 4:
+                continue
+            code, path = entry[:2], entry[3:]
+            old_path = None
+            if "R" in code or "C" in code:
+                if idx < len(fields):
+                    old_path = fields[idx] or None
+                    idx += 1
+            item = {
+                "path": path,
+                "index": code[0],
+                "worktree": code[1],
+                "untracked": code == "??",
+            }
+            if old_path:
+                item["old_path"] = old_path
+            changed.append(item)
+            if len(changed) >= 1000:
+                break
+        return changed
+
+    def workspace_diff(
+        self,
+        instance_id,
+        node,
+        source_path,
+        *,
+        base="HEAD",
+        path=None,
+        context_lines=3,
+        start_line=0,
+        max_lines=300,
+    ):
+        """Return status plus a paginated tracked diff for an arena workspace.
+
+        Untracked file names are included in ``changed_files`` but their content
+        is not read: an untrusted repository can make an untracked symlink point
+        outside the workspace.  Once a file is tracked, Git reads its index/work
+        tree state under the normal repository boundary.
+        """
+        container = self._find_node_container(instance_id, node)
+        if container is None:
+            return {"success": False, "error": f"node {node!r} not found in arena {instance_id}"}
+        if (
+            not isinstance(source_path, str)
+            or not source_path.startswith("/")
+            or "\x00" in source_path
+        ):
+            return {"success": False, "error": "invalid provider workspace path"}
+        if not isinstance(base, str) or not _WORKSPACE_BASE_RE.fullmatch(base):
+            return {
+                "success": False,
+                "error": "base must be HEAD, a HEAD ancestor, or a 7-40 digit commit hash",
+            }
+        try:
+            path = self._validate_workspace_path(path)
+            context_lines = max(0, min(int(context_lines), _WORKSPACE_MAX_CONTEXT))
+            start_line = max(0, int(start_line))
+            max_lines = max(1, min(int(max_lines), _WORKSPACE_MAX_LINES))
+        except (TypeError, ValueError) as e:
+            return {"success": False, "error": str(e)}
+
+        git = [
+            "git",
+            "-c", "core.hooksPath=/dev/null",
+            "-c", "core.pager=cat",
+            "-c", "pager.diff=false",
+            "-c", "core.fsmonitor=false",
+            "-c", "core.untrackedCache=false",
+            "-C", source_path,
+        ]
+        pathspec = ["--", path] if path else []
+        try:
+            code, resolved, stderr = self._workspace_git_exec(
+                container,
+                git + ["rev-parse", "--verify", f"{base}^{{commit}}"],
+                source_path,
+            )
+            if code != 0:
+                return {
+                    "success": False,
+                    "error": f"cannot resolve workspace baseline: {stderr.strip() or base}",
+                }
+            baseline = resolved.strip().splitlines()[0] if resolved.strip() else ""
+
+            code, status_raw, stderr = self._workspace_git_exec(
+                container,
+                git + ["status", "--porcelain=v1", "-z", "--untracked-files=all"] + pathspec,
+                source_path,
+            )
+            if code != 0:
+                return {
+                    "success": False,
+                    "error": f"cannot inspect workspace status: {stderr.strip() or 'git failed'}",
+                }
+            changed = self._parse_porcelain_status(status_raw)
+
+            code, diff_raw, stderr = self._workspace_git_exec(
+                container,
+                git + [
+                    "diff",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    f"--unified={context_lines}",
+                    baseline,
+                ] + pathspec,
+                source_path,
+            )
+            if code != 0:
+                return {
+                    "success": False,
+                    "error": f"cannot inspect workspace diff: {stderr.strip() or 'git failed'}",
+                }
+        except Exception as e:
+            logger.error("[%s] workspace diff on %s failed: %s", instance_id, node, e)
+            return {"success": False, "error": str(e)}
+
+        lines = diff_raw.splitlines()
+        end = min(len(lines), start_line + max_lines)
+        untracked = sum(1 for item in changed if item["untracked"])
+        return {
+            "success": True,
+            "node": node,
+            "source_path": source_path,
+            "base": base,
+            "baseline": baseline,
+            "path": path,
+            "context_lines": context_lines,
+            "changed_files": changed,
+            "changed_file_count": len(changed),
+            "untracked_file_count": untracked,
+            "diff": "\n".join(lines[start_line:end]),
+            "start_line": start_line,
+            "returned_lines": max(0, end - start_line),
+            "total_lines": len(lines),
+            "next_start_line": end if end < len(lines) else None,
+            "truncated": end < len(lines) or len(diff_raw) >= _WORKSPACE_RAW_CAP,
+            "note": (
+                "Untracked file names are reported, but untracked content is "
+                "not rendered until it is added to Git."
+                if untracked else None
+            ),
         }
 
     def _find_node_container(self, instance_id, node):

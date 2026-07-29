@@ -153,8 +153,17 @@ def score_arena(
         vid = f.get("matched_vuln_id")
         if not vid:
             continue
+        validation = f.get("validation") or {}
+        # An operator refutation is an authoritative statement that this is not
+        # a real discovery.  Do not award benchmark points/full-clear merely
+        # because the original CWE+node claim matched the hidden manifest.
+        if (
+            validation.get("method") == "operator"
+            and validation.get("confirmed") is False
+        ):
+            continue
         found.add(vid)
-        if (f.get("validation") or {}).get("confirmed") is True:
+        if validation.get("confirmed") is True:
             confirmed.add(vid)
     found &= set(by_id)  # ignore stale ids not in the current manifest
     confirmed &= found

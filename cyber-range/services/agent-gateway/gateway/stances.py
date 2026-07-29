@@ -47,13 +47,15 @@ LIFECYCLE_TOOLS = frozenset(
 #     orchestrator; both endpoints are operator-only there.
 STANCE_TOOLS: dict[Stance, frozenset[str]] = {
     Stance.attacker: frozenset(
-        {"get_topology", "list_targets", "run_command", "report_finding"}
+        {"get_topology", "list_targets", "run_command", "report_finding",
+         "workspace_status", "workspace_diff"}
     ),
     Stance.defender: frozenset({"get_topology", "query_events"}),
     Stance.mitm: frozenset({"get_topology", "observe_traffic"}),
     Stance.configurator: frozenset(
         {"get_setup_brief", "propose_setup_step", "await_setup_step",
-         "run_setup_step", "upload_file", "finish_setup"}
+         "run_setup_step", "upload_file", "finish_setup",
+         "workspace_status", "workspace_diff"}
     ),
     Stance.operator: frozenset({"scaffold_scenario", "import_scenario"}),
 }

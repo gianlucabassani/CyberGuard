@@ -78,6 +78,64 @@ def test_binding_is_per_arena(operator, agent):
     assert agent.post("/arenas/bind-B/exec", json={"node": "victim", "command": "id"}).status_code == 403
 
 
+def test_attacker_workspace_is_whitebox_only(operator, agent, monkeypatch):
+    import api
+
+    outputs = {
+        "node_jump_name": "nv-jump",
+        "node_jump_ssh_command": "docker exec nv-jump sh",
+        "node_victim_name": "nv-victim",
+        "node_victim_sut_source": "/opt/sut",
+        "node_victim_whitebox_source": "/whitebox/victim",
+        "node_victim_whitebox": True,
+    }
+    _active_arena(operator.db, "bind-workspace", outputs)
+    operator.post(
+        "/arenas/bind-workspace/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+    seen = {}
+
+    def fake_diff(_self, arena, node, source_path, **options):
+        seen.update(arena=arena, node=node, source_path=source_path, options=options)
+        return {
+            "success": True, "changed_files": [], "changed_file_count": 0,
+            "diff": "", "returned_lines": 0, "total_lines": 0,
+            "start_line": 0, "next_start_line": None,
+        }
+
+    monkeypatch.setattr(api.Orchestrator, "workspace_diff", fake_diff)
+    listing = agent.get("/arenas/bind-workspace/workspaces")
+    assert listing.status_code == 200
+    workspace = listing.json()["workspaces"][0]
+    assert workspace["access"] == "whitebox" and workspace["kind"] == "whitebox"
+    assert workspace["writable"] is True
+
+    diff = agent.get("/arenas/bind-workspace/workspaces/victim/diff")
+    assert diff.status_code == 200, diff.text
+    assert seen["node"] == "jump"
+    assert seen["source_path"] == "/whitebox/victim"
+
+
+def test_attacker_cannot_enumerate_blackbox_checkout(operator, agent):
+    outputs = {
+        "node_jump_name": "nv-jump",
+        "node_jump_ssh_command": "docker exec nv-jump sh",
+        "node_victim_name": "nv-victim",
+        "node_victim_sut_source": "/opt/sut",
+    }
+    _active_arena(operator.db, "bind-blackbox", outputs)
+    operator.post(
+        "/arenas/bind-blackbox/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+    listing = agent.get("/arenas/bind-blackbox/workspaces")
+    assert listing.status_code == 200 and listing.json()["workspaces"] == []
+    assert agent.get(
+        "/arenas/bind-blackbox/workspaces/victim/diff"
+    ).status_code == 404
+
+
 def test_revoke_blocks_the_agent(operator, agent):
     _active_arena(operator.db, "bind-revoke")
     operator.post("/arenas/bind-revoke/bindings", json={"agent_name": "binder-agent"})
@@ -238,6 +296,36 @@ def test_findings_require_binding(operator, agent):
     operator.post("/arenas/bind-find/bindings", json={"agent_name": "binder-agent"})
     assert agent.post("/arenas/bind-find/findings",
                       json={"title": "x", "cwe": "CWE-89", "node": "victim"}).status_code == 200
+
+
+# --- lifecycle + destructive record operations ------------------------------
+
+
+def test_agent_can_destroy_only_a_bound_arena(operator, agent, monkeypatch):
+    import api
+
+    monkeypatch.setattr(api.destroy_lab, "delay", lambda *args, **kwargs: None)
+    _active_arena(operator.db, "bind-destroy-own")
+    _active_arena(operator.db, "bind-destroy-other")
+    operator.post(
+        "/arenas/bind-destroy-own/bindings",
+        json={"agent_name": "binder-agent", "stance": "defender"},
+    )
+
+    assert agent.delete("/destroy/bind-destroy-other").status_code == 403
+    allowed = agent.delete("/destroy/bind-destroy-own")
+    assert allowed.status_code == 200
+    assert operator.db.get_deployment("bind-destroy-own")["status"] == "destroying"
+
+
+def test_agent_cannot_delete_or_purge_deployment_records(operator, agent):
+    _active_arena(operator.db, "bind-delete-record")
+    operator.db.update_deployment("bind-delete-record", status="destroying", actor="test")
+    operator.db.update_deployment("bind-delete-record", status="destroyed", actor="test")
+
+    assert agent.delete("/deployments/bind-delete-record").status_code == 403
+    assert agent.delete("/deployments").status_code == 403
+    assert operator.db.get_deployment("bind-delete-record") is not None
 
 
 # --- configurator: claimed at setup/start, revoked at finish -----------------

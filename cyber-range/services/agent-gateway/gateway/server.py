@@ -119,6 +119,30 @@ def build_server(cfg: GatewayConfig | None = None, context: GatewayContext | Non
             return tools.list_targets(ctx(), arena_id=arena_id)
 
         @mcp.tool()
+        def workspace_status(arena_id: str) -> dict:
+            """List source workspaces this attacker may inspect. Only targets
+            explicitly configured for white-box access are returned."""
+            return tools.workspace_status(ctx(), arena_id=arena_id)
+
+        @mcp.tool()
+        def workspace_diff(
+            arena_id: str,
+            node: str,
+            base: str = "HEAD",
+            path: str | None = None,
+            context_lines: int = 3,
+            start_line: int = 0,
+            max_lines: int = 300,
+        ) -> dict:
+            """Inspect a bounded Git diff page for a white-box target workspace.
+            Use next_start_line to continue large diffs."""
+            return tools.workspace_diff(
+                ctx(), arena_id=arena_id, node=node, base=base, path=path,
+                context_lines=context_lines, start_line=start_line,
+                max_lines=max_lines,
+            )
+
+        @mcp.tool()
         def run_command(arena_id: str, command: str, node: str | None = None,
                         timeout: int = 30) -> dict:
             """Run a shell command from the arena foothold; returns its output."""
@@ -170,6 +194,29 @@ def build_server(cfg: GatewayConfig | None = None, context: GatewayContext | Non
             return tools.observe_traffic(ctx(), arena_id=arena_id, seconds=seconds, max_packets=max_packets)
 
     elif stance is Stance.configurator:
+        @mcp.tool()
+        def workspace_status(arena_id: str) -> dict:
+            """List writable SUT source workspaces available during setup."""
+            return tools.workspace_status(ctx(), arena_id=arena_id)
+
+        @mcp.tool()
+        def workspace_diff(
+            arena_id: str,
+            node: str,
+            base: str = "HEAD",
+            path: str | None = None,
+            context_lines: int = 3,
+            start_line: int = 0,
+            max_lines: int = 300,
+        ) -> dict:
+            """Inspect a bounded Git diff page for setup changes. Use
+            next_start_line to continue large diffs."""
+            return tools.workspace_diff(
+                ctx(), arena_id=arena_id, node=node, base=base, path=path,
+                context_lines=context_lines, start_line=start_line,
+                max_lines=max_lines,
+            )
+
         @mcp.tool()
         def get_setup_brief(arena_id: str) -> dict:
             """What you need to bring the service up: victim node(s) in scope, any

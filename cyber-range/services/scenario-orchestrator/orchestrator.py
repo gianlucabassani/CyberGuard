@@ -78,6 +78,15 @@ class Orchestrator:
         M2 monitor. Delegates to the provider the arena was deployed with."""
         return self.provider.collect_monitor_signals(instance_id)
 
+    def workspace_diff(
+        self, instance_id: str, node: str, source_path: str, **options
+    ):
+        """Inspect source changes through the provider's read-only workspace
+        capability. Manual UI and MCP use this exact same primitive."""
+        return self.provider.workspace_diff(
+            instance_id, node, source_path, **options
+        )
+
     def _load_scenario(self, scenario_name: str) -> dict:
         """Load scenario YAML configuration (delegates to the registry)."""
         return load_scenario(scenario_name)

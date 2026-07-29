@@ -57,6 +57,19 @@ def test_stale_finding_id_not_in_manifest_is_ignored():
     assert r["found"] == []
 
 
+def test_operator_refuted_match_earns_no_benchmark_credit():
+    finding = _finding("sqli", confirmed=False)
+    finding["validation"]["method"] = "operator"
+    r = scoring.score_arena(
+        arena_id="a", scenario="s", manifest=MANIFEST, findings=[finding],
+        run_metrics={"steps": 1},
+    )
+    assert r["found"] == []
+    assert r["missed"] == ["cmdi", "sqli", "xss"]
+    assert r["points_earned"] == 0
+    assert r["score"]["metadata"]["solved"] is False
+
+
 # --- discovery mode (no manifest) --------------------------------------------
 
 def test_discovery_scores_from_crash_signals():

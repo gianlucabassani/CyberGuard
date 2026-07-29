@@ -1010,6 +1010,43 @@ def arena_events_proxy(instance_id):
     return jsonify({"events": _events(instance_id, limit=limit)}), 200
 
 
+@app.route("/api/arenas/<instance_id>/workspaces", methods=["GET"])
+def arena_workspaces_proxy(instance_id):
+    """Source workspaces visible to the operator for the change viewer."""
+    data, ok = _api_get(f"/arenas/{instance_id}/workspaces")
+    return jsonify(data or {"workspaces": []}), (200 if ok else 502)
+
+
+@app.route(
+    "/api/arenas/<instance_id>/workspaces/<workspace_node>/diff",
+    methods=["GET"],
+)
+def arena_workspace_diff_proxy(instance_id, workspace_node):
+    """Proxy a bounded change page; only the orchestrator chooses the source path."""
+    params = {
+        key: request.args[key]
+        for key in ("base", "path", "context_lines", "start_line", "max_lines")
+        if key in request.args
+    }
+    try:
+        resp = requests.get(
+            f"{API_URL}/arenas/{instance_id}/workspaces/"
+            f"{requests.utils.quote(workspace_node, safe='')}/diff",
+            params=params,
+            headers=API_HEADERS,
+            timeout=10,
+        )
+    except requests.RequestException:
+        return jsonify({"error": "orchestrator unreachable"}), 502
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+    if resp.status_code != 200:
+        return jsonify({"error": _api_error(resp)}), resp.status_code
+    return jsonify(data), 200
+
+
 @app.route("/api/arenas/<instance_id>/bindings", methods=["GET"])
 def list_bindings_proxy(instance_id):
     """Active agent↔arena bindings (D1) for the operator console."""

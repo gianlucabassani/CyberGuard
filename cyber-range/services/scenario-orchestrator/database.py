@@ -281,13 +281,20 @@ class Database:
         to a set of event ``types``. The type filter lets the setup-phase derive
         the current session from setup-lifecycle events alone, so high-volume
         engagement noise (agent_exec/status/finding) can't push the open session
-        out of the fetch window (the 500-event window bug)."""
+        out of the fetch window (the 500-event window bug).
+
+        ``limit=None`` is reserved for internal consumers that must process the
+        complete append-only history, such as scoring and eval export. Public
+        event-feed endpoints continue to impose their own bounded limits.
+        """
         with self._session() as session:
-            query = select(Event).order_by(Event.id.desc()).limit(limit)
+            query = select(Event).order_by(Event.id.desc())
             if lab_id is not None:
                 query = query.where(Event.lab_id == lab_id)
             if types is not None:
                 query = query.where(Event.type.in_(list(types)))
+            if limit is not None:
+                query = query.limit(limit)
             return [
                 {
                     "id": e.id,

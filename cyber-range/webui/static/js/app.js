@@ -375,6 +375,7 @@
     let last = {};
     try { last = JSON.parse(document.getElementById("lab-data").textContent || "{}"); } catch (e) {}
     renderTopology(last);
+    initWorkspaceChanges(id);
 
     let prevStatus = null, delay = 3000;
     const poll = () => {
@@ -397,6 +398,132 @@
         .catch(() => setTimeout(poll, 8000));
     };
     poll();
+  }
+
+  function initWorkspaceChanges(arenaId) {
+    const card = document.getElementById("workspace-card");
+    if (!card || !arenaId) return;
+    const nodeSelect = document.getElementById("workspace-node");
+    const pathSelect = document.getElementById("workspace-path");
+    const baseInput = document.getElementById("workspace-base");
+    const diffBox = document.getElementById("workspace-diff");
+    const count = document.getElementById("workspace-count");
+    const meta = document.getElementById("workspace-meta");
+    const note = document.getElementById("workspace-note");
+    const more = document.getElementById("workspace-more");
+    const refresh = document.getElementById("workspace-refresh");
+    let nextStart = null;
+    let loading = false;
+
+    function renderDiff(text) {
+      diffBox.textContent = "";
+      if (!text) {
+        const empty = document.createElement("span");
+        empty.className = "workspace-empty";
+        empty.textContent = "No tracked changes against this baseline.";
+        diffBox.appendChild(empty);
+        return;
+      }
+      text.split("\n").forEach((line) => {
+        const row = document.createElement("span");
+        row.className = "workspace-line";
+        if (line.startsWith("+++") || line.startsWith("---") ||
+            line.startsWith("diff ") || line.startsWith("index ")) {
+          row.classList.add("workspace-line--meta");
+        } else if (line.startsWith("@@")) {
+          row.classList.add("workspace-line--hunk");
+        } else if (line.startsWith("+")) {
+          row.classList.add("workspace-line--add");
+        } else if (line.startsWith("-")) {
+          row.classList.add("workspace-line--del");
+        }
+        row.textContent = line || " ";
+        diffBox.appendChild(row);
+      });
+    }
+
+    function setFiles(files, selected) {
+      pathSelect.textContent = "";
+      const all = document.createElement("option");
+      all.value = "";
+      all.textContent = "All tracked changes";
+      pathSelect.appendChild(all);
+      (files || []).forEach((file) => {
+        const option = document.createElement("option");
+        option.value = file.path;
+        option.textContent = (file.untracked ? "? " : "") + file.path;
+        pathSelect.appendChild(option);
+      });
+      pathSelect.value = selected || "";
+    }
+
+    function load(startLine) {
+      if (loading || !nodeSelect.value) return;
+      loading = true;
+      refresh.disabled = true;
+      more.disabled = true;
+      const query = new URLSearchParams({
+        base: (baseInput.value || "HEAD").trim(),
+        context_lines: "3",
+        start_line: String(startLine || 0),
+        max_lines: "300",
+      });
+      if (pathSelect.value) query.set("path", pathSelect.value);
+      fetch("/api/arenas/" + encodeURIComponent(arenaId) + "/workspaces/" +
+            encodeURIComponent(nodeSelect.value) + "/diff?" + query.toString())
+        .then((response) => response.json().then((body) => ({ response, body })))
+        .then(({ response, body }) => {
+          if (!response.ok) throw new Error(body.error || "Workspace inspection failed");
+          const previousPath = pathSelect.value;
+          setFiles(body.changed_files, previousPath);
+          renderDiff(body.diff || "");
+          count.textContent = body.changed_file_count + " file" +
+            (body.changed_file_count === 1 ? "" : "s");
+          const accessLabel = body.workspace && body.workspace.kind === "whitebox"
+            ? "writable research copy · target unchanged"
+            : (body.workspace && body.workspace.writable
+              ? "writable setup checkout" : "read-only source");
+          meta.textContent = accessLabel +
+            " · baseline " + (body.baseline || body.base || "HEAD").slice(0, 12) +
+            " · lines " + body.start_line + "–" + (body.start_line + body.returned_lines) +
+            " of " + body.total_lines;
+          note.textContent = body.note || (body.truncated ? "Diff is paginated to keep agent and browser context bounded." : "");
+          nextStart = body.next_start_line;
+          more.hidden = nextStart == null;
+        })
+        .catch((error) => {
+          renderDiff("");
+          meta.textContent = error.message;
+          note.textContent = "";
+          more.hidden = true;
+        })
+        .finally(() => {
+          loading = false;
+          refresh.disabled = false;
+          more.disabled = false;
+        });
+    }
+
+    fetch("/api/arenas/" + encodeURIComponent(arenaId) + "/workspaces")
+      .then((response) => response.json().then((body) => ({ response, body })))
+      .then(({ response, body }) => {
+        if (!response.ok || !(body.workspaces || []).length) return;
+        nodeSelect.textContent = "";
+        body.workspaces.forEach((workspace) => {
+          const option = document.createElement("option");
+          option.value = workspace.node;
+          option.textContent = workspace.node + (workspace.writable ? " · writable" : " · white-box");
+          nodeSelect.appendChild(option);
+        });
+        card.hidden = false;
+        load(0);
+      })
+      .catch(() => {});
+
+    nodeSelect.addEventListener("change", () => { setFiles([], ""); load(0); });
+    pathSelect.addEventListener("change", () => load(0));
+    refresh.addEventListener("click", () => load(0));
+    more.addEventListener("click", () => load(nextStart));
   }
 
   /* ---- utilities ------------------------------------------------------ */

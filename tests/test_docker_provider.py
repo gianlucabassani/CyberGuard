@@ -31,6 +31,96 @@ def test_as_git_remote_leaves_git_forms_untouched():
     assert _as_git_remote("git://host/repo") == "git://host/repo"
     assert _as_git_remote("github.com/org/repo") == "github.com/org/repo"
 
+
+class _WorkspaceContainer:
+    def __init__(self):
+        self.calls = []
+
+    def exec_run(self, argv, demux=True, **kwargs):
+        self.calls.append(argv)
+        if "rev-parse" in argv:
+            return 0, (b"a" * 40 + b"\n", b"")
+        if "status" in argv:
+            return 0, (b" M app.py\x00?? notes.txt\x00", b"")
+        if "diff" in argv:
+            return 0, (
+                b"diff --git a/app.py b/app.py\n"
+                b"--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n",
+                b"",
+            )
+        raise AssertionError(argv)
+
+
+def test_workspace_diff_is_bounded_and_disables_repo_git_extensions():
+    provider = DockerLocalProvider(client=_FakeClient())
+    container = _WorkspaceContainer()
+    provider._find_node_container = lambda _arena, _node: container
+
+    result = provider.workspace_diff(
+        "arena", "victim", "/opt/sut", context_lines=999, max_lines=2
+    )
+
+    assert result["success"] is True
+    assert result["context_lines"] == 20
+    assert result["returned_lines"] == 2
+    assert result["next_start_line"] == 2
+    assert result["changed_file_count"] == 2
+    assert result["untracked_file_count"] == 1
+    diff_call = next(call for call in container.calls if "diff" in call)
+    assert "--no-ext-diff" in diff_call and "--no-textconv" in diff_call
+    assert "core.hooksPath=/dev/null" in diff_call
+    assert all("sh" != token for token in diff_call)
+
+
+@pytest.mark.parametrize("path", ("/etc/passwd", "../secret", "a/../../secret"))
+def test_workspace_diff_rejects_path_escape(path):
+    provider = DockerLocalProvider(client=_FakeClient())
+    provider._find_node_container = lambda _arena, _node: _WorkspaceContainer()
+    result = provider.workspace_diff("arena", "victim", "/opt/sut", path=path)
+    assert result["success"] is False
+    assert "inside" in result["error"]
+
+
+def test_workspace_diff_rejects_arbitrary_revision_expression():
+    provider = DockerLocalProvider(client=_FakeClient())
+    provider._find_node_container = lambda _arena, _node: _WorkspaceContainer()
+    result = provider.workspace_diff(
+        "arena", "victim", "/opt/sut", base="HEAD:../../etc/passwd"
+    )
+    assert result["success"] is False
+    assert "base must be" in result["error"]
+
+
+def test_workspace_diff_falls_back_to_read_only_networkless_git_helper():
+    provider = DockerLocalProvider(client=_FakeClient())
+    container = _WorkspaceContainer()
+    container.attrs = {
+        "Mounts": [
+            {"Type": "volume", "Name": "nv-source", "Destination": "/opt/sut"}
+        ]
+    }
+    container.reload = lambda: None
+    container.exec_run = lambda _argv, **_kwargs: (127, (b"", b"git: not found"))
+    provider._find_node_container = lambda _arena, _node: container
+    helper_calls = []
+
+    def helper_run(**kwargs):
+        helper_calls.append(kwargs)
+        command = kwargs["command"]
+        if "rev-parse" in command:
+            return b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        return b""
+
+    provider.client.containers.run = helper_run
+    result = provider.workspace_diff("arena", "victim", "/opt/sut")
+    assert result["success"] is True
+    assert len(helper_calls) == 3
+    assert all(call["network_mode"] == "none" for call in helper_calls)
+    assert all(
+        call["volumes"] == {"nv-source": {"bind": "/workspace", "mode": "ro"}}
+        for call in helper_calls
+    )
+
 # --- fake docker client -------------------------------------------------------
 
 
@@ -1044,9 +1134,9 @@ def test_service_package_gated_off_by_default():
     assert "NIDAVELLIR_ALLOW_SOURCE_BUILD" in result["error"]
 
 
-# --- white-box source access (P2-10 safe half: read-only source mount) --------
+# --- white-box source access (arena-scoped writable research copy) ------------
 
-def test_whitebox_source_cloned_and_mounted_readonly_on_foothold():
+def test_whitebox_source_cloned_as_writable_research_copy_on_foothold():
     client = _FakeClient()
     provider = DockerLocalProvider(client=client)
     scenario = {
@@ -1075,11 +1165,11 @@ def test_whitebox_source_cloned_and_mounted_readonly_on_foothold():
     assert helper["volumes"][vol.name]["bind"] == "/src"
     assert helper["remove"] is True
 
-    # The foothold mounts that volume READ-ONLY at /whitebox/<victim>; the victim
-    # does not mount it.
+    # The foothold mounts a writable research copy; the victim does not mount it,
+    # so agent experiments cannot mutate the running target.
     kali = next(kw for kw in client.containers.run_kwargs
                 if kw.get("labels", {}).get(LABEL_NODE) == "kali")
-    assert kali["volumes"][vol.name] == {"bind": "/whitebox/app", "mode": "ro"}
+    assert kali["volumes"][vol.name] == {"bind": "/whitebox/app", "mode": "rw"}
     app = next(kw for kw in client.containers.run_kwargs
                if kw.get("labels", {}).get(LABEL_NODE) == "app")
     assert "volumes" not in app

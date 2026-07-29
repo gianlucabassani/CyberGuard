@@ -101,3 +101,27 @@ class RangeProvider(ABC):
         raise NotImplementedError(
             f"the {self.name!r} provider does not support monitor signals yet"
         )
+
+    def workspace_diff(
+        self,
+        instance_id: str,
+        node: str,
+        source_path: str,
+        *,
+        base: str = "HEAD",
+        path: str | None = None,
+        context_lines: int = 3,
+        start_line: int = 0,
+        max_lines: int = 300,
+    ) -> dict:
+        """Return a bounded, read-only source-workspace change view.
+
+        Providers may implement this wherever the workspace physically lives
+        (container volume, VM disk, remote worker). The API supplies only paths
+        discovered from provider outputs; callers cannot choose an arbitrary
+        host path. Implementations must disable repository-controlled diff
+        drivers/hooks and bound output before returning it.
+        """
+        raise NotImplementedError(
+            f"the {self.name!r} provider does not support workspace diffs yet"
+        )

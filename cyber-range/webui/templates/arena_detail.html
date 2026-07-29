@@ -149,6 +149,38 @@
 </div>
 {% endif %}
 
+<!-- Shared change intelligence: the exact same bounded provider primitive exposed
+     to agents over MCP, rendered here for human review and evidence capture. -->
+<div class="card pad-0" id="workspace-card" style="margin-top:16px" hidden>
+  <div class="card-head">
+    <h3><i class="fa-solid fa-code-compare"></i> Workspace changes</h3>
+    <span class="muted" style="font-weight:400;font-size:12.5px">— clean Git evidence from the isolated target</span>
+    <div class="spacer"></div>
+    <span id="workspace-count" class="badge badge--idle">0 files</span>
+  </div>
+  <div class="workspace-toolbar">
+    <label class="workspace-control"><span>Workspace</span>
+      <select class="input" id="workspace-node"></select>
+    </label>
+    <label class="workspace-control grow"><span>File</span>
+      <select class="input mono" id="workspace-path"><option value="">All tracked changes</option></select>
+    </label>
+    <label class="workspace-control workspace-base"><span>Baseline</span>
+      <input class="input mono" id="workspace-base" value="HEAD" maxlength="80">
+    </label>
+    <button class="btn btn-primary btn-sm workspace-refresh" id="workspace-refresh">
+      <i class="fa-solid fa-rotate"></i> Refresh
+    </button>
+  </div>
+  <div id="workspace-meta" class="workspace-meta muted"></div>
+  <pre id="workspace-diff" class="workspace-diff"><span class="muted">Loading changes…</span></pre>
+  <div class="workspace-footer">
+    <span id="workspace-note" class="muted"></span>
+    <div class="spacer"></div>
+    <button class="btn btn-sm" id="workspace-more" hidden>Load next page</button>
+  </div>
+</div>
+
 <!-- Agent positioning (all arenas): authorize a bring-your-own agent to drive this arena
      in a stance. Authorization only — the operator then points their own agent app at the gateway. -->
 <div class="card pad-0" id="positioning-card" style="margin-top:16px"

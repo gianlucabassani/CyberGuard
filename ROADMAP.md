@@ -48,10 +48,16 @@ cross-referenced so `.agent/backlog/BACKLOG.md` and the ADRs stay traceable.
   (`run_command`/`report_finding`), defender (`query_events`), MITM (observe-only),
   **configurator** (operator-scripted / HITL / autonomous-double-locked), operator
   authoring; per-session step budget; JSONL trace.
+- **Shared change intelligence (M4 first slice, 2026-07-29):** provider-owned,
+  bounded Git status/diff exposed through both the operator GUI and stance-scoped
+  MCP tools. Attackers see only a writable, target-separated research copy of
+  declared white-box source; configurators see the writable setup checkout.
+  Repository hooks, pagers, textconv, and external diff
+  drivers are disabled; untracked symlink contents are never read.
 - **Pillar 3 (generation):** BYO-key prompt→v3-spec generator with a **never-auto-
   deploy review gate**; SUT arenas (clone a repo, build to a pinned image via the
-  M1 pipeline, white-box read-only source mount); the SUT wizard; the advise-only
-  operator **co-pilot** (context-injected, no tools).
+  M1 pipeline, white-box target-separated research copy); the SUT wizard; the
+  advise-only operator **co-pilot** (context-injected, no tools).
 - **M1 (repo → running service) — COMPLETE (2026-07-04):** repo-introspection +
   deterministic build tier (honor a shipped Dockerfile) + **verified LLM Dockerfile
   synthesis** (Repo2Run loop) + `service.package` install, all version-pinned +
@@ -107,6 +113,26 @@ monitoring/scoring → benchmark/eval + the flagship proof) *is* Horizon 1, and 
 also the foundation every internal use depends on. So it comes first, unchanged in
 priority.
 
+### The product unit: a reproducible security research session
+
+The primary abstraction is not a CTF challenge or an agent chat. It is one
+**security research session**: immutable target identity (artifact digest or VM
+snapshot), declared scope and source-visibility policy, isolated starting state,
+manual and MCP actions on equal footing, captured changes/evidence/findings, and
+a replayable result. That unit serves three tracks, which remain distinct:
+
+| Track | Best use | Targets | Truth / result |
+|---|---|---|---|
+| **Training & calibration** | learn the workflow; smoke-test tools | Juice Shop, Gin & Juice, Vulhub, OWASP labs | known answers are acceptable; report coverage, evidence quality and time—not novel capability |
+| **Controlled agent benchmark** | compare agent/scaffold versions | pinned, held-out known-vulnerable builds with resettable state | hidden manifest + deterministic graders; repeated trials, pass@k, time/steps/cost and uncertainty |
+| **Vulnerability research** | discover unknown issues in OSS or an authorized private product | current OSS commits, supplied binaries/installers, private source or black-box VM images | no fake “accuracy”; report confirmed findings, unique crash sites, coverage, reproducible PoCs and analyst effort |
+
+Public labs are a **calibration lane**, not the headline benchmark: models may
+have memorized them. Current open-source projects and private products are the
+highest-value research lane, but lack complete ground truth and must not be used
+to claim recall. A controlled benchmark uses withheld variants or embargoed/
+pinned targets and records its leakage policy.
+
 ### The graduation gate (Horizon 1 → Horizon 2)
 
 Before Nidavellir is worth introducing in an enterprise as an agent-test harness, all
@@ -136,7 +162,7 @@ enterprise runs.
 | **M1** | Reliable *repo → running service* provisioning | H1 (spine) | P1-6, Field-C | L | ✅ **DONE** — the core unlock |
 | **M2** | Deep monitoring + crash oracle + structured scoring | H1 (spine) | P4-1/6/7 | L | ✅ **DONE** — the moat; makes any target scorable |
 | **M3** | Benchmark & eval layer | H1 (spine) | P4-2/3/4, P5-4 | M | ✅ **DONE (2026-07-17)** — comparable/replayable eval rows, findings carry a PoC, operator verification closes the loop; tested & verified end-to-end |
-| **M4** | Agent-grade arena tooling & fail-closed guardrails | H2 | P2-2/3/4 | M | **Answers "is the tooling enough?"** — the tools a real agent needs to do real work |
+| **M4** | Research workspace, target intake & agent-grade tooling | H2 | P2-2/3/4 | L | **Answers "can real research happen here?"** — evidence-rich manual/MCP parity, then serious research tools |
 | **M5** | Regression & eval pipeline for iterating on an agent | H2 | P4-3/4, P5-4 | M | The internal-harness heart: compare agent vN vs vN+1, export to our eval stack |
 | **M6** | *(opportunistic)* LLM-application-as-target arenas | H2 | P3-5, AI-INT §4 | M | Directly relevant to testing the **agentic products** an enterprise builds |
 
@@ -282,13 +308,31 @@ tiers / FST, guided-vs-unguided, and the SSE live feed. → **ADR-0009 / ADR-001
 
 ---
 
-### 🟢 M4 — Agent-grade arena tooling & fail-closed guardrails · **H2 · M**
+### 🟢 M4 — Research workspace, target intake & agent-grade tooling · **H2 · L**
 
-**Goal.** Make the arena rich enough that a **real, serious offensive agent** (the
-kind an enterprise builds) can do real work — not just shell one-liners. **This is the
-direct, concrete answer to "I'm not sure the tooling this project uses is enough."**
-Today the attacker stance is essentially `run_command` + `report_finding`; a
-sophisticated agent is starved on that alone.
+**Goal.** Make a session useful to a working security engineer first, then expose
+the same optimized primitives to an agent. A person must be able to install or
+attach an authorized target, reset it, inspect what changed, collect evidence,
+and reproduce a finding without depending on a model. MCP automates those same
+operations rather than creating a separate product.
+
+**M4-A — change intelligence · INITIAL SLICE SHIPPED (2026-07-29).**
+`workspace_status` / `workspace_diff` and the arena GUI provide the same clean,
+paginated Git evidence. Next: staged/unstaged grouping, safe untracked-file opt-in,
+downloadable hashed patch artifacts, before/after filesystem manifests for binary
+targets, and attaching a selected diff/hunk to a finding.
+
+**M4-B — safe target intake + reset · NEXT / highest leverage.**
+- Accept a Git ref, OCI image/digest, local source bundle, binary/installer, or
+  prebuilt VM image; record provenance, hashes, authorization and scope.
+- Never execute target-controlled install/build logic in the control plane.
+  Use a disposable build worker with bounded CPU/RAM/disk/time and explicit
+  egress; promote only the resulting immutable artifact.
+- Add a local libvirt/QEMU path for closed-source desktop/services, with golden
+  snapshot → per-run clone → checkpoint/rollback. Containers remain the optimized
+  default where they accurately model the target.
+- Add health/readiness probes and a preflight that fails early when target,
+  foothold, instrumentation or reset contracts are incomplete.
 
 **Complete the attacker toolset to match the field.** Ship, as first-class MCP tool
 schemas layered over the shell — the primitives every serious offensive agent (XBOW,
@@ -327,6 +371,11 @@ schemas, all traced; a budget breach fails closed and freezes the arena; a CI
 containment test proves the code-exec sandbox can't reach the internet or cloud
 metadata. → **ADR-0005** (gateway protocol/stances/guardrails) extended.
 
+Additional research acceptance: reset the same target to a verified golden state;
+review/export an exact change/evidence bundle in the GUI; retrieve the identical
+bounded view through MCP; test a closed-source installer in a disposable VM
+without granting it control-plane or host-filesystem access. → **ADR-0011**.
+
 ---
 
 ### 🔵 M5 — Regression & eval pipeline for iterating on an agent · **H2 · M**
@@ -338,6 +387,13 @@ across agent versions** is a tool.
 - **Agent-version comparability.** Run agent `vN` and `vN+1` over the same arena set;
   produce a diffable report (score deltas, new regressions, newly-solved arenas,
   cost/step deltas per arena). Built on M3's row schema + held-out sets.
+- **Validity before leaderboard.** Store target exposure/leakage class, scaffold,
+  tool versions, temperature/seed where supported, trial count, target digest and
+  reset proof. Compare paired runs on the same immutable set and show per-task
+  rows plus uncertainty, not only an aggregate.
+- **Keep the tracks separate.** Training results never enter benchmark aggregates.
+  Discovery/private-product runs report evidence and confirmed-finding metrics,
+  not an accuracy score when false negatives are unknowable.
 - **Export into our eval stack.** One-click / API promotion of any run or span into
   **Langfuse / Phoenix / Braintrust** as a dataset item, using M3's OpenInference-aligned
   traces — so the agent team debugs and evals in tools they already live in.
@@ -495,6 +551,7 @@ Designs preserved in git history of the prior roadmap.
 - **0007** software-under-test arenas — Accepted (provision→configure→monitor→score spine complete)
 - **0008** repo→image build pipeline — Accepted (M1 complete; buildpack/compose/devcontainer execution tiers pending)
 - **0009** scoring, deterministic validators, monitor — Accepted (M2 complete; M3/M5 extend the trace→eval + regression format)
+- **0011** reproducible research sessions + shared change intelligence — Accepted
 
 *Deferred ADRs (revisit only if the horizon changes, §4): 0006 AWS topology & cost
 controls; 0010 MCP OAuth 2.1 & tool supply-chain defenses.*

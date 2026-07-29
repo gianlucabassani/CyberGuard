@@ -120,13 +120,14 @@ a packaged `service.image`. Build-time network is open (apt/pip/npm); the arena
 yet (supply a `source` or an `image`).
 
 **White-box source access (`whitebox: true` + a `source`).** When a victim node is
-white-box and declares a `service.source`, docker-local clones that repo (read-only,
-pinned to `ref`) into a per-arena volume and mounts it **read-only** into the
-foothold(s) at `/whitebox/<victim>` — the agent reads the source while it tests the
-running service. The clone runs nothing from the repo (so source *reading* is
-ungated, unlike *building*), the mount is read-only, and the volume is reclaimed on
-destroy. `whitebox: true` **without** a `source` just surfaces the flag (no source
-to mount). The mounted path is surfaced as `node_<victim>_whitebox_source`.
+white-box and declares a `service.source`, docker-local clones that repo (pinned
+to `ref`) into a per-arena volume and mounts it as a **writable research copy**
+in the foothold(s) at `/whitebox/<victim>`. The agent can inspect, instrument,
+and diff the copy while it tests the running service. The copy is not mounted
+into the victim, so it cannot mutate the target. The clone runs nothing from the
+repo, and the volume is reclaimed on destroy. `whitebox: true` **without** a
+`source` just surfaces the flag. The mounted path is surfaced as
+`node_<victim>_whitebox_source`.
 
 ### Importing from Vulhub (P1-5)
 

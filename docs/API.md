@@ -33,6 +33,25 @@ the local mock demo only.
 
 > All examples below assume `-H "X-API-Key: $NIDAVELLIR_API_KEY"` is added.
 
+### Workspace change intelligence
+
+For an active source-backed arena:
+
+- `GET /arenas/{id}/workspaces` lists provider-discovered Git workspaces visible
+  to the caller. Operators and unrestricted personal sandboxes get the applicable
+  workspace; configurators get writable SUT source; attackers get only source
+  explicitly declared `whitebox`.
+- `GET /arenas/{id}/workspaces/{node}/diff` returns status plus a clean bounded
+  diff. Query parameters: `base` (`HEAD`, a HEAD ancestor, or 7–40 hex commit),
+  optional relative `path`, `context_lines` (0–20), `start_line`, and `max_lines`
+  (1–500). Continue at `next_start_line`.
+
+The caller never supplies a repository location: it is resolved from deployment
+outputs. Git hooks, pagers, external diff drivers and textconv are disabled.
+Untracked file names are included but their content is not opened. Every request
+records metadata in a `workspace_diff` event; diff content is not copied into the
+event log.
+
 ### Health Check
 
 `GET /health` — unauthenticated liveness probe, returns `{"status": "ok"}`.
@@ -221,8 +240,8 @@ event (via `GET /events`) drives the console chip.
 ### Agent ↔ arena bindings (server-enforced, D1)
 
 The orchestrator — not just the gateway — decides whether an `agent` key may
-**drive** an arena (exec / report findings / configure the victim), and in what
-stance. Without a binding an agent key cannot touch an arena it has no
+**drive** an arena (exec / report findings / configure, observe, or destroy the
+arena), and in what stance. Without a binding an agent key cannot touch an arena it has no
 relationship to (the gateway's stance gate was client-side only). State is
 event-backed (`agent_binding` / `agent_binding_revoked` — no migration).
 
@@ -237,8 +256,9 @@ A binding is created three ways:
 
 A binding's **stance** scopes what it permits (server-side): `null` →
 unrestricted within the arena; `attacker` → exec (foothold-only) + findings;
-`configurator` → setup steps; `defender`/`mitm` → reads only. Operators/admins
-are never bound and bypass every check.
+`configurator` → setup steps; `mitm` → traffic observation; `defender` → reads
+only. Every active stance may destroy its bound arena through the shared
+lifecycle tool. Operators/admins are never bound and bypass every check.
 
 - `POST /arenas/{id}/bindings` `{ "agent_name": "redteam", "stance": "attacker" }`
   → `{ "bound": true, … }`. Operator-only. Re-granting updates the stance.
@@ -251,7 +271,7 @@ are never bound and bypass every check.
 binding stays in place but its driving actions are frozen:
 - `POST /arenas/{id}/bindings/{agent_name}/pause` → `{ "paused": true, … }`.
   Operator-only, idempotent. While paused, the agent's gated actions
-  (exec / findings / setup / observe) return **`423 Locked`**.
+  (exec / findings / setup / observe / destroy) return **`423 Locked`**.
 - `POST /arenas/{id}/bindings/{agent_name}/resume` → `{ "paused": false, … }`.
   Operator-only, idempotent. The agent may drive the arena again.
 Pause/resume are event-backed (`agent_binding_paused` / `agent_binding_resumed`);
@@ -681,6 +701,10 @@ done
 
 Queue infrastructure destruction and workspace cleanup.
 
+Operators/admins may destroy any arena. An `agent` principal must hold an active
+binding to this arena; an unbound agent receives `403`, and a paused binding
+receives `423`.
+
 **Request:**
 ```http
 DELETE /destroy/{instance_id}
@@ -699,6 +723,8 @@ DELETE /destroy/{instance_id}
 ```
 
 **Error Responses:**
+- `403 Forbidden`: agent key is not bound to this arena
+- `423 Locked`: the agent's arena binding is paused
 - `404 Not Found`: unknown instance
 - `409 Conflict`: the lab is already destroyed (lifecycle state machine,
   ADR-0004) — delete its record instead if you want it gone from history
@@ -714,7 +740,7 @@ curl -X DELETE http://localhost:8000/destroy/lab-team-1
 
 Remove one lab's record from history. Only terminal-state labs
 (`destroyed`, `failed`, `error_destroying`) can be deleted — a live lab
-must be destroyed first.
+must be destroyed first. Operator/admin only.
 
 **Request:**
 ```http
@@ -729,6 +755,7 @@ DELETE /deployments/{instance_id}
 ```
 
 **Error Responses:**
+- `403 Forbidden`: operator/admin role required
 - `404 Not Found`: unknown instance
 - `409 Conflict`: the lab is still live (destroy it first)
 
@@ -737,7 +764,8 @@ DELETE /deployments/{instance_id}
 ### 6. Purge Archived Records
 
 Remove **all** terminal-state (`destroyed`/`failed`/`error_destroying`)
-lab records at once. Live labs are untouched.
+lab records at once. Live labs are untouched. Operator/admin only; an agent key
+receives `403`.
 
 **Request:**
 ```http

@@ -218,6 +218,77 @@ def get_briefing(ctx: GatewayContext, arena_id: str) -> dict:
     return briefing
 
 
+def workspace_status(ctx: GatewayContext, arena_id: str) -> dict:
+    """List source workspaces visible to this stance.
+
+    The orchestrator is authoritative: an attacker receives only explicit
+    white-box source, while a configurator receives the writable setup checkout.
+    """
+    _guard(ctx, "workspace_status")
+    try:
+        result = ctx.client.list_workspaces(ctx.session.api_key, arena_id)
+    except Exception:
+        _trace(ctx, "workspace_status", {}, ok=False, arena_id=arena_id)
+        raise
+    _trace(
+        ctx,
+        "workspace_status",
+        {"workspace_count": len((result or {}).get("workspaces", []))},
+        ok=True,
+        arena_id=arena_id,
+    )
+    return result
+
+
+def workspace_diff(
+    ctx: GatewayContext,
+    arena_id: str,
+    node: str,
+    *,
+    base: str = "HEAD",
+    path: str | None = None,
+    context_lines: int = 3,
+    start_line: int = 0,
+    max_lines: int = 300,
+) -> dict:
+    """Read a bounded Git diff page from a stance-authorized workspace."""
+    _guard(ctx, "workspace_diff")
+    args = {
+        "node": node,
+        "base": base,
+        "path": path,
+        "context_lines": context_lines,
+        "start_line": start_line,
+        "max_lines": max_lines,
+    }
+    try:
+        result = ctx.client.workspace_diff(
+            ctx.session.api_key,
+            arena_id,
+            node,
+            base=base,
+            path=path,
+            context_lines=context_lines,
+            start_line=start_line,
+            max_lines=max_lines,
+        )
+    except Exception:
+        _trace(ctx, "workspace_diff", args, ok=False, arena_id=arena_id)
+        raise
+    _trace(
+        ctx,
+        "workspace_diff",
+        {
+            **args,
+            "changed_file_count": (result or {}).get("changed_file_count", 0),
+            "returned_lines": (result or {}).get("returned_lines", 0),
+        },
+        ok=True,
+        arena_id=arena_id,
+    )
+    return result
+
+
 # --- attacker stance ---------------------------------------------------------
 
 
