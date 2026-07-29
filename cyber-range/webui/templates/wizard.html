@@ -8,7 +8,7 @@
   <div>
     <div class="eyebrow">Research</div>
     <h1>Software-Under-Test Wizard</h1>
-    <div class="sub">Bring your own GitHub project up as a software-under-test arena — target, then the setup consent, then review the topology before you launch. For adversarial attack scenarios, use <a href="{{ url_for('launch') }}" style="color:var(--accent)">Launch</a>.</div>
+    <div class="sub">Bring an authorized Git repository or public OCI image up as an immutable software-under-test arena, review its provenance and topology, then launch it in isolation.</div>
   </div>
 </div>
 
@@ -18,7 +18,7 @@
     <span class="wiz-step__num">1</span>
     <span class="wiz-step__body">
       <span class="wiz-step__title">Target</span>
-      <span class="wiz-step__desc">Repository & machines</span>
+      <span class="wiz-step__desc">Artifact & machines</span>
     </span>
   </button>
   <div class="wiz-step__line"></div>
@@ -47,14 +47,33 @@
     <div class="grid" style="grid-template-columns:1fr 1fr; align-items:start; gap:18px">
       <div class="card card-pad">
         <h3 style="font-size:15px; margin-bottom:4px">What are you standing up?</h3>
-        <p class="help" style="margin-bottom:16px">A fresh Ubuntu box with this repo cloned read-write into <code class="mono">/opt/sut</code>; the service is brought up in the setup phase (next step). An optional Kali foothold is added for the engagement.</p>
+        <p class="help" style="margin-bottom:16px">Git targets use an isolated writable checkout and setup phase. OCI targets run their native entrypoint from a registry-verified immutable digest. An optional Kali foothold joins the isolated segment.</p>
         <div class="field"><label class="label">Instance name</label>
           <input class="input mono" name="instance_id" id="wiz-name" placeholder="my-sut-arena" required
                  pattern="[a-z0-9][a-z0-9-]{0,39}" title="Lowercase letters, digits and hyphens (max 40)"></div>
-        <div class="field"><label class="label">Repository</label>
-          <input class="input mono" name="repo" id="wiz-repo" placeholder="https://github.com/owner/project" required></div>
+        <div class="field"><label class="label">Target type</label>
+          <select class="select" name="target_type" id="wiz-target-type">
+            <option value="git">Git repository</option>
+            <option value="oci">OCI container image</option>
+          </select>
+        </div>
+        <div id="wiz-git-fields">
+          <div class="field"><label class="label">Repository</label>
+            <input class="input mono" name="repo" id="wiz-repo" placeholder="https://github.com/owner/project" required></div>
+          <div class="field"><label class="label">Ref <span class="faint">(tag / branch / commit)</span></label>
+            <input class="input mono" name="ref" id="wiz-ref" placeholder="main"></div>
+        </div>
+        <div id="wiz-oci-fields" hidden>
+          <div class="field"><label class="label">OCI image <span class="faint">(public registry in this phase)</span></label>
+            <input class="input mono" name="image" id="wiz-image" placeholder="nginx:1.27 or ghcr.io/owner/image@sha256:…"></div>
+          <div class="field"><label class="label">Runtime platform</label>
+            <select class="select mono" name="platform" id="wiz-platform">
+              <option value="linux/amd64">linux/amd64</option>
+              <option value="linux/arm64">linux/arm64</option>
+            </select>
+          </div>
+        </div>
         <div class="grid cols-2" style="gap:14px">
-          <div class="field"><label class="label">Ref <span class="faint">(tag / branch / commit)</span></label><input class="input mono" name="ref" id="wiz-ref" placeholder="main"></div>
           <div class="field"><label class="label">Service ports</label><input class="input mono" name="ports" id="wiz-ports" placeholder="8000"></div>
         </div>
         <label class="check" style="margin:2px 0 4px"><input type="checkbox" name="include_attacker" id="wiz-atk" checked> Add a Kali attacker foothold for the engagement</label>
@@ -105,7 +124,8 @@
     <div class="grid" style="grid-template-columns:1fr 1fr; align-items:start; gap:18px">
       <div class="card card-pad">
         <h3 style="font-size:15px; margin-bottom:4px">Setup phase — your consent</h3>
-        <p class="help" style="margin-bottom:16px">Bringing the service up needs a configurator session on the victim. This is the load-bearing safety choice: nothing writes/configures the box without it, and it's time-boxed, step-budgeted, and its egress is revoked before the engagement.</p>
+        <p class="help" id="wiz-setup-help" style="margin-bottom:16px">Bringing a Git target up needs a configurator session on the victim. Nothing writes/configures the box without it, and it is time-boxed, step-budgeted, and its egress is revoked before the engagement.</p>
+        <div id="wiz-setup-controls">
         <div class="field"><label class="label">Who configures it</label>
           <select class="select" name="setup_mode" id="wiz-mode">
             <option value="operator">You — operator shell (AI-optional)</option>
@@ -116,6 +136,7 @@
           <div class="field"><label class="label">Step budget</label><input class="input mono" type="number" name="command_budget" id="wiz-budget" value="50" min="1"></div>
         </div>
         <label class="check" style="margin:2px 0 4px"><input type="checkbox" name="setup_egress" id="wiz-egress" checked> Open setup egress (victim can fetch dependencies during setup; revoked before the engagement)</label>
+        </div>
       </div>
       <!-- context panel -->
       <div class="card pad-0 wiz-ctx">

@@ -59,9 +59,9 @@ class MockProvider(RangeProvider):
             if is_foothold:
                 fake_outputs[f"node_{name}_ssh_command"] = f"ssh user@{ip}  # simulated"
             # SUT victim: surface the clone path + a (simulated) connect command.
-            if node.get("sut_clone"):
-                clone = node["sut_clone"]
-                fake_outputs[f"node_{name}_sut_source"] = clone.get("path") or f"/opt/{name}"
+            if node.get("sut_clone") or node.get("sut_bundle"):
+                source = node.get("sut_clone") or node["sut_bundle"]
+                fake_outputs[f"node_{name}_sut_source"] = source.get("path") or f"/opt/{name}"
                 fake_outputs[f"node_{name}_setup_shell"] = f"docker exec -it nv-mock-{name} /bin/bash  # simulated"
             if node.get("ports"):
                 fake_outputs[f"node_{name}_url"] = f"http://{ip}"

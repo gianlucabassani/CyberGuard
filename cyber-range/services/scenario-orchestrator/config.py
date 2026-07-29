@@ -63,6 +63,22 @@ CACHE_DIR = Path(os.getenv("CACHE_DIR", str(BASE_DIR / "cache")))
 # registry (scenarios.py) discovers both directories.
 SCENARIOS_DIR = Path(os.getenv("SCENARIOS_DIR", str(DATA_DIR / "scenarios")))
 
+# Content-addressed local source-bundle intake (ROADMAP M4-B2). Upload bytes and
+# expanded archive content are independently bounded; the total store cap keeps
+# an operator mistake from filling the control-plane disk indefinitely.
+SOURCE_BUNDLES_DIR = Path(
+    os.getenv("SOURCE_BUNDLES_DIR", str(DATA_DIR / "source-bundles"))
+)
+SOURCE_BUNDLE_MAX_UPLOAD_BYTES = int(
+    os.getenv("SOURCE_BUNDLE_MAX_UPLOAD_BYTES", str(32 * 1024 * 1024))
+)
+SOURCE_BUNDLE_MAX_EXPANDED_BYTES = int(
+    os.getenv("SOURCE_BUNDLE_MAX_EXPANDED_BYTES", str(128 * 1024 * 1024))
+)
+SOURCE_BUNDLE_STORE_MAX_BYTES = int(
+    os.getenv("SOURCE_BUNDLE_STORE_MAX_BYTES", str(2 * 1024 * 1024 * 1024))
+)
+
 # OPENSTACK CREDENTIALS
 OS_USERNAME = os.getenv("OS_USERNAME")
 OS_PASSWORD = os.getenv("OS_PASSWORD")
@@ -204,7 +220,14 @@ def validate_config():
         raise ValueError(error_msg)
     
     # Create runtime directories if they don't exist
-    for dir_path in [RUNS_DIR, DATA_DIR, KEYS_DIR, CACHE_DIR, SCENARIOS_DIR]:
+    for dir_path in [
+        RUNS_DIR,
+        DATA_DIR,
+        KEYS_DIR,
+        CACHE_DIR,
+        SCENARIOS_DIR,
+        SOURCE_BUNDLES_DIR,
+    ]:
         dir_path.mkdir(parents=True, exist_ok=True)
         print(f"✅ Directory ready: {dir_path}")
     

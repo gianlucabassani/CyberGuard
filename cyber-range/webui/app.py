@@ -520,19 +520,26 @@ def wizard():
 
 @app.route("/api/arenas/sut/preview", methods=["POST"])
 def sut_preview_proxy():
-    """No-deploy review for the wizard (proxies POST /arenas/sut/preview)."""
+    """No-deploy review for Git or OCI targets in the research wizard."""
     body = request.get_json(silent=True) or {}
+    target_type = body.get("target_type") or "git"
     payload = {
         "instance_id": (body.get("instance_id") or "wizard-preview").strip() or "wizard-preview",
-        "repo": (body.get("repo") or "").strip(),
-        "ref": (body.get("ref") or "").strip() or None,
         "ports": body.get("ports") or [],
         "include_attacker": bool(body.get("include_attacker", True)),
         "authorization_basis": body.get("authorization_basis") or "public_oss",
         "authorization_confirmed": bool(body.get("authorization_confirmed")),
         "scope_note": (body.get("scope_note") or "").strip() or None,
     }
-    data, code = _api_post("/arenas/sut/preview", payload)
+    if target_type == "oci":
+        payload["image"] = (body.get("image") or "").strip()
+        payload["platform"] = body.get("platform") or "linux/amd64"
+        endpoint = "/arenas/oci/preview"
+    else:
+        payload["repo"] = (body.get("repo") or "").strip()
+        payload["ref"] = (body.get("ref") or "").strip() or None
+        endpoint = "/arenas/sut/preview"
+    data, code = _api_post(endpoint, payload)
     return jsonify(data), code
 
 
@@ -666,37 +673,49 @@ def build_custom():
 
 @app.route("/build-sut", methods=["POST"])
 def build_sut():
-    """Launch a software-under-test arena from the wizard (proxies POST
-    /arenas/sut). Clone a GitHub repo onto a fresh Ubuntu box; the service is
-    brought up during the setup phase by you or a HITL agent."""
+    """Launch a Git checkout or immutable OCI software-under-test arena."""
     f = request.form
+    target_type = f.get("target_type", "git")
     ports = [int(p) for p in re.findall(r"\d+", f.get("ports", ""))][:8]
     payload = {
         "instance_id": f.get("instance_id"),
-        "repo": (f.get("repo") or "").strip(),
-        "ref": (f.get("ref") or "").strip() or None,
         "ports": ports,
         "include_attacker": f.get("include_attacker") == "on",
-        "setup_mode": f.get("setup_mode", "operator"),
-        "setup_egress": f.get("setup_egress") == "on",
         "authorization_basis": f.get("authorization_basis", "public_oss"),
         "authorization_confirmed": f.get("authorization_confirmed") == "on",
         "scope_note": (f.get("scope_note") or "").strip() or None,
     }
-    # The wizard surfaces the time-box + step budget; pass them through when given.
-    if f.get("time_box_seconds"):
-        payload["time_box_seconds"] = int(re.sub(r"\D", "", f["time_box_seconds"]) or 0)
-    if f.get("command_budget"):
-        payload["command_budget"] = int(re.sub(r"\D", "", f["command_budget"]) or 0)
+    if target_type == "oci":
+        payload["image"] = (f.get("image") or "").strip()
+        payload["platform"] = f.get("platform") or "linux/amd64"
+        endpoint = "/arenas/oci"
+        source = payload["image"]
+    else:
+        payload["repo"] = (f.get("repo") or "").strip()
+        payload["ref"] = (f.get("ref") or "").strip() or None
+        payload["setup_mode"] = f.get("setup_mode", "operator")
+        payload["setup_egress"] = f.get("setup_egress") == "on"
+        if f.get("time_box_seconds"):
+            payload["time_box_seconds"] = int(
+                re.sub(r"\D", "", f["time_box_seconds"]) or 0
+            )
+        if f.get("command_budget"):
+            payload["command_budget"] = int(
+                re.sub(r"\D", "", f["command_budget"]) or 0
+            )
+        endpoint = "/arenas/sut"
+        source = payload["repo"]
     try:
         resp = requests.post(
-            f"{API_URL}/arenas/sut", json=payload, headers=API_HEADERS, timeout=10
+            f"{API_URL}{endpoint}", json=payload, headers=API_HEADERS, timeout=15
         )
         if resp.status_code == 200:
-            flash(
-                f"Building SUT arena '{payload['instance_id']}' from {payload['repo']} — "
-                "setup opens automatically once it's active.", "info",
+            suffix = (
+                "native image startup will be verified by preflight."
+                if target_type == "oci"
+                else "setup opens automatically once it's active."
             )
+            flash(f"Building SUT arena '{payload['instance_id']}' from {source} — {suffix}", "info")
         else:
             flash(f"SUT launch rejected: {_api_error(resp)}", "warning")
     except requests.RequestException as e:

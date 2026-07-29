@@ -49,6 +49,93 @@ def git_target_manifest(
     }
 
 
+def oci_target_manifest(
+    *,
+    requested_image: str,
+    runtime_ref: str,
+    resolved_digest: str,
+    authorization_basis: str,
+    authorization_confirmed: bool,
+    scope_note: str | None,
+    actor: str,
+    platform: str = "linux/amd64",
+) -> dict:
+    """Build the immutable, auditable identity for one OCI image target."""
+    return {
+        "schema": TARGET_MANIFEST_SCHEMA,
+        "kind": "oci",
+        "source": requested_image,
+        "requested_ref": requested_image,
+        "resolved_ref": resolved_digest,
+        "runtime_ref": runtime_ref,
+        "platform": platform,
+        "identity": {
+            "algorithm": "sha256",
+            "digest": resolved_digest,
+            "platform": platform,
+        },
+        "authorization": {
+            "confirmed": authorization_confirmed,
+            "basis": authorization_basis,
+            "scope_note": scope_note,
+            "confirmed_by": actor,
+        },
+        "reset": {
+            "strategy": "destroy_redeploy",
+            "immutable_source": True,
+        },
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def source_bundle_target_manifest(
+    *,
+    artifact: dict,
+    authorization_basis: str,
+    authorization_confirmed: bool,
+    scope_note: str | None,
+    actor: str,
+) -> dict:
+    """Build immutable provenance for one content-addressed source bundle."""
+    return {
+        "schema": TARGET_MANIFEST_SCHEMA,
+        "kind": "source_bundle",
+        "source": artifact["filename"],
+        "requested_ref": artifact["filename"],
+        "resolved_ref": artifact["digest"],
+        "identity": {
+            "algorithm": "sha256",
+            "digest": artifact["digest"],
+            "payload_digest": artifact["payload_digest"],
+        },
+        "artifact": {
+            key: artifact[key]
+            for key in (
+                "schema",
+                "filename",
+                "upload_bytes",
+                "payload_digest",
+                "payload_bytes",
+                "expanded_bytes",
+                "file_count",
+                "member_count",
+                "stripped_root",
+            )
+        },
+        "authorization": {
+            "confirmed": authorization_confirmed,
+            "basis": authorization_basis,
+            "scope_note": scope_note,
+            "confirmed_by": actor,
+        },
+        "reset": {
+            "strategy": "destroy_redeploy",
+            "immutable_source": True,
+        },
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def evaluate_preflight(
     outputs: dict,
     target_manifest: dict,
@@ -80,7 +167,10 @@ def evaluate_preflight(
         key.endswith(("_sut_source", "_whitebox_source"))
         for key in outputs
     )
-    workspace_required = not auto_build or include_attacker
+    workspace_required = (
+        target_manifest.get("kind") in {"git", "source_bundle"}
+        and (not auto_build or include_attacker)
+    )
 
     checks = [
         {
@@ -125,7 +215,7 @@ def evaluate_preflight(
             "detail": (
                 "provider workspace discovered"
                 if workspace_present else
-                ("not required for packaged target without a foothold"
+                ("not required for this packaged target"
                  if not workspace_required else "no provider workspace discovered")
             ),
         },

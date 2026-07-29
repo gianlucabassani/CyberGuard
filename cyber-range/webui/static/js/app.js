@@ -422,6 +422,8 @@
         document.getElementById("preflight-identity").textContent =
           identity.digest ? identity.digest.slice(0, 16) : "resolving…";
         document.getElementById("preflight-identity").title = identity.digest || "";
+        document.getElementById("preflight-platform").textContent =
+          target.platform || identity.platform || "provider native";
         document.getElementById("preflight-reset").textContent =
           reset.strategy ? reset.strategy.replace(/_/g, " ") : "—";
         const checks = document.getElementById("preflight-checks");
@@ -1959,8 +1961,28 @@
     const back = document.getElementById("wiz-back");
     const next = document.getElementById("wiz-next");
     const launch = document.getElementById("wiz-launch");
+    const targetType = document.getElementById("wiz-target-type");
+    const gitFields = document.getElementById("wiz-git-fields");
+    const ociFields = document.getElementById("wiz-oci-fields");
+    const repoInput = document.getElementById("wiz-repo");
+    const imageInput = document.getElementById("wiz-image");
+    const setupControls = document.getElementById("wiz-setup-controls");
+    const setupHelp = document.getElementById("wiz-setup-help");
     let step = 1;
     const ports = () => (document.getElementById("wiz-ports").value.match(/\d+/g) || []).map(Number).slice(0, 8);
+    const isOci = () => targetType.value === "oci";
+
+    function syncTargetType() {
+      const oci = isOci();
+      gitFields.hidden = oci;
+      ociFields.hidden = !oci;
+      repoInput.required = !oci;
+      imageInput.required = oci;
+      setupControls.hidden = oci;
+      setupHelp.textContent = oci
+        ? "OCI targets require no configurator: Nidavellir runs the image's native entrypoint exactly as published, then preflight verifies that the target remains healthy."
+        : "Bringing a Git target up needs a configurator session on the victim. Nothing writes/configures the box without it, and it is time-boxed, step-budgeted, and its egress is revoked before the engagement.";
+    }
 
     const show = (n) => {
       step = n;
@@ -1986,8 +2008,11 @@
       msg.className = "import-msg"; msg.textContent = "Validating…";
       const body = {
         instance_id: document.getElementById("wiz-name").value.trim() || "wizard-preview",
+        target_type: targetType.value,
         repo: document.getElementById("wiz-repo").value.trim(),
         ref: document.getElementById("wiz-ref").value.trim() || null,
+        image: document.getElementById("wiz-image").value.trim(),
+        platform: document.getElementById("wiz-platform").value,
         ports: ports(),
         include_attacker: document.getElementById("wiz-atk").checked,
         authorization_basis: document.getElementById("wiz-auth-basis").value,
@@ -1995,14 +2020,18 @@
         scope_note: document.getElementById("wiz-scope-note").value.trim() || null,
       };
       const recapRows = [
-        ["Repository", body.repo + (body.ref ? " @ " + body.ref : "")],
+        ["Target", isOci() ? body.image : body.repo + (body.ref ? " @ " + body.ref : "")],
+        ["Platform", isOci() ? body.platform : "provider native"],
         ["Ports", body.ports.length ? body.ports.join(", ") : "—"],
         ["Attacker foothold", body.include_attacker ? "Kali" : "none"],
         ["Authorization", body.authorization_basis.replace(/_/g, " ") +
           (body.authorization_confirmed ? " · confirmed" : " · NOT CONFIRMED")],
-        ["Configured by", document.getElementById("wiz-mode").value === "hitl" ? "HITL (propose → approve)" : "operator shell"],
-        ["Setup egress", document.getElementById("wiz-egress").checked ? "open (revoked before engagement)" : "off"],
-        ["Time-box / budget", document.getElementById("wiz-tb").value + "s / " + document.getElementById("wiz-budget").value + " steps"],
+        ["Configured by", isOci() ? "native OCI entrypoint" :
+          (document.getElementById("wiz-mode").value === "hitl" ? "HITL (propose → approve)" : "operator shell")],
+        ["Setup egress", isOci() ? "not applicable" :
+          (document.getElementById("wiz-egress").checked ? "open (revoked before engagement)" : "off")],
+        ["Time-box / budget", isOci() ? "not applicable" :
+          document.getElementById("wiz-tb").value + "s / " + document.getElementById("wiz-budget").value + " steps"],
       ];
       recap.innerHTML = recapRows.map((r) =>
         '<div class="wiz-recap__row"><dt>' + escapeHtml(r[0]) + '</dt><dd class="mono">' + escapeHtml(String(r[1])) + '</dd></div>').join("");
@@ -2023,15 +2052,18 @@
     }
 
     next.addEventListener("click", () => {
-      // step 1 needs a valid name + repo before advancing (uses native validity)
+      // Step 1 needs a valid name + active target field before advancing.
       if (step === 1) {
-        const name = document.getElementById("wiz-name"), repo = document.getElementById("wiz-repo");
+        const name = document.getElementById("wiz-name");
+        const target = isOci() ? imageInput : repoInput;
         const auth = document.getElementById("wiz-auth-confirmed");
-        if (!name.reportValidity() || !repo.reportValidity() || !auth.reportValidity()) return;
+        if (!name.reportValidity() || !target.reportValidity() || !auth.reportValidity()) return;
       }
       show(Math.min(step + 1, 3));
     });
     back.addEventListener("click", () => show(Math.max(step - 1, 1)));
+    targetType.addEventListener("change", syncTargetType);
+    syncTargetType();
     show(1);
   }
 

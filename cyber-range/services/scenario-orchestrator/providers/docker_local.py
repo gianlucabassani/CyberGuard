@@ -30,6 +30,7 @@ from pathlib import PurePosixPath
 import config
 import images
 import netguard
+import source_bundle
 from providers.base import RangeProvider
 from redaction import redact_mapping
 from scenario_spec import normalized_nodes
@@ -445,13 +446,15 @@ class DockerLocalProvider(RangeProvider):
             "network": run_net,
             "labels": {**labels, LABEL_ROLE: role, LABEL_NODE: node["name"]},
         }
+        if node.get("platform"):
+            run_kwargs["platform"] = node["platform"]
 
         command = node.get("command")
         if command is None and self._is_foothold(node):
             command = DEFAULT_ATTACKER_COMMAND
         if command is not None:
             run_kwargs["command"] = command
-        elif not node.get("needs_build"):
+        elif not node.get("needs_build") and not node.get("native_startup"):
             # Liveness guardrail (generic — no image allowlist). A container is
             # reaped the instant its foreground process exits, and Nidavellir
             # deploys headlessly (detached, no TTY). Any target whose image starts
@@ -843,16 +846,84 @@ class DockerLocalProvider(RangeProvider):
         mounts: dict[str, tuple[str, str]] = {}
         for node in nodes:
             clone = node.get("sut_clone")
-            if not clone or not clone.get("repo"):
+            bundle = node.get("sut_bundle")
+            if clone and bundle:
+                raise ValueError(
+                    f"node {node['name']!r} cannot declare both sut_clone and sut_bundle"
+                )
+            if not clone and not bundle:
                 continue
             vol_name = f"nv-{self._short(instance_id)}-sut-{node['name']}"
-            self._clone_source_into_volume(
-                instance_id, vol_name,
-                {"repo": clone["repo"], "ref": clone.get("ref")}, labels,
-            )
-            path = clone.get("path") or f"/opt/{node['name']}"
+            if clone:
+                if not clone.get("repo"):
+                    raise ValueError(f"node {node['name']!r} has no SUT clone repository")
+                self._clone_source_into_volume(
+                    instance_id, vol_name,
+                    {"repo": clone["repo"], "ref": clone.get("ref")}, labels,
+                )
+                path = clone.get("path") or f"/opt/{node['name']}"
+            else:
+                self._bundle_source_into_volume(
+                    instance_id, vol_name, bundle, labels
+                )
+                path = bundle.get("path") or f"/opt/{node['name']}"
             mounts[node["name"]] = (vol_name, path)
         return mounts
+
+    def _bundle_source_into_volume(self, instance_id, vol_name, bundle, labels):
+        """Materialize a verified canonical tar into an arena-owned volume.
+
+        Bytes cross the Docker API via put_archive, avoiding a host bind path
+        mismatch when the worker itself runs in a container. The networkless
+        helper initializes a clean Git baseline for shared change intelligence.
+        """
+        digest = bundle.get("digest")
+        payload_digest = bundle.get("payload_digest")
+        payload = source_bundle.read_payload(digest, payload_digest)
+        logger.info(
+            "[%s] Materializing source bundle %s into volume %s",
+            instance_id,
+            digest,
+            vol_name,
+        )
+        self.client.volumes.create(name=vol_name, labels=dict(labels))
+        helper = self.client.containers.run(
+            image=_GIT_HELPER_IMAGE,
+            entrypoint="/bin/sh",
+            command=["-c", "sleep 300"],
+            volumes={vol_name: {"bind": "/src", "mode": "rw"}},
+            network_mode="none",
+            labels=dict(labels),
+            detach=True,
+            remove=False,
+        )
+        try:
+            if not helper.put_archive("/src", payload):
+                raise RuntimeError("Docker rejected the source-bundle archive")
+            commands = (
+                ["git", "-C", "/src", "init", "--quiet"],
+                [
+                    "git", "-c", "safe.directory=/src",
+                    "-c", "core.hooksPath=/dev/null",
+                    "-C", "/src", "add", "--force", "--all",
+                ],
+                [
+                    "git", "-c", "safe.directory=/src",
+                    "-c", "core.hooksPath=/dev/null",
+                    "-c", "user.name=Nidavellir Intake",
+                    "-c", "user.email=intake@localhost",
+                    "-C", "/src", "commit", "--quiet", "-m", "Immutable intake baseline",
+                ],
+            )
+            for command in commands:
+                result = helper.exec_run(command)
+                exit_code = result[0] if isinstance(result, tuple) else result.exit_code
+                if exit_code != 0:
+                    raise RuntimeError(
+                        f"source-bundle baseline command failed with exit {exit_code}"
+                    )
+        finally:
+            helper.remove(force=True)
 
     def _clone_source_into_volume(self, instance_id, vol_name, source, labels):
         """Clone a repo (read-only, pinned to `ref`) into a labeled docker volume
@@ -1027,9 +1098,9 @@ class DockerLocalProvider(RangeProvider):
             # operator can `docker exec` in to build the project (the box is a
             # victim, not a foothold — `_setup_shell` is a distinct key so it is
             # NOT mistaken for an attacker foothold by the scope derivation).
-            if node.get("sut_clone"):
-                clone = node["sut_clone"]
-                outputs[f"node_{name}_sut_source"] = clone.get("path") or f"/opt/{name}"
+            if node.get("sut_clone") or node.get("sut_bundle"):
+                source = node.get("sut_clone") or node["sut_bundle"]
+                outputs[f"node_{name}_sut_source"] = source.get("path") or f"/opt/{name}"
                 outputs[f"node_{name}_setup_shell"] = f"docker exec -it {container.name} /bin/bash"
             if is_foothold:
                 outputs[f"node_{name}_ssh_command"] = ssh

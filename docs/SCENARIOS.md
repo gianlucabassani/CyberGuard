@@ -136,6 +136,16 @@ reset contract instead of “clone whatever `main` points to now.” Launch requ
 the operator to confirm the authorization basis and records it in the target
 manifest and preflight event.
 
+**OCI target identity.** The wizard can also accept a public OCI image. Registry
+metadata resolves a tag to a manifest SHA-256 before compilation, and the victim's
+`image` is the resulting digest-pinned runtime reference. OCI targets carry
+`native_startup: true` internally so docker-local preserves the published
+entrypoint rather than injecting the generic shell keepalive. A native process
+that exits is an unhealthy target, not a container the provider disguises as
+running. The selected `linux/amd64` or `linux/arm64` platform is recorded in the
+manifest and enforced by docker-local. OCI targets have no source workspace and
+skip the configurator.
+
 ### Importing from Vulhub (P1-5)
 
 [Vulhub](https://github.com/vulhub/vulhub) ships hundreds of pre-built vulnerable

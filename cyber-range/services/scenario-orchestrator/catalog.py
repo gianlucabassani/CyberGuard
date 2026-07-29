@@ -276,6 +276,97 @@ def build_sut_scenario(
     return raw
 
 
+def build_oci_scenario(
+    name: str,
+    image: str,
+    *,
+    ports: list[int] | None = None,
+    include_attacker: bool = True,
+    platform: str = "linux/amd64",
+    segment: str = DEFAULT_SEGMENT,
+) -> dict:
+    """Compile a digest-pinned OCI image as a native-startup research target."""
+    victim = {
+        "name": SUT_VICTIM_NODE,
+        "role": "victim",
+        "image": image,
+        "segments": [segment],
+        "native_startup": True,
+        "platform": platform,
+        "services": ["software-under-test (immutable OCI image)"],
+    }
+    if ports:
+        victim["ports"] = list(ports)
+
+    nodes = [victim]
+    agents: list[dict] = []
+    if include_attacker:
+        attacker = get(SUT_ATTACKER)
+        _require_container(attacker)
+        nodes.append(attacker.to_node(segment))
+        agents.append({"stance": "attacker", "node": attacker.id})
+
+    raw = {
+        "schema": "nidavellir/v3",
+        "name": name,
+        "title": name,
+        "difficulty": "custom",
+        "requires": {"provider_class": "container"},
+        "network": {"segments": [{"name": segment}]},
+        "nodes": nodes,
+        "agents": agents,
+    }
+    ScenarioSpec.from_raw(raw)
+    return raw
+
+
+def build_source_bundle_scenario(
+    name: str,
+    artifact_digest: str,
+    payload_digest: str,
+    *,
+    ports: list[int] | None = None,
+    include_attacker: bool = True,
+    segment: str = DEFAULT_SEGMENT,
+) -> dict:
+    """Compile an immutable local source bundle into the setup SUT shape."""
+    victim = {
+        "name": SUT_VICTIM_NODE,
+        "role": "victim",
+        "image": SUT_VICTIM_IMAGE,
+        "segments": [segment],
+        "command": "sleep infinity",
+        "sut_bundle": {
+            "digest": artifact_digest,
+            "payload_digest": payload_digest,
+            "path": SUT_CLONE_PATH,
+        },
+        "services": ["software-under-test (local source bundle; setup required)"],
+    }
+    if ports:
+        victim["ports"] = list(ports)
+
+    nodes = [victim]
+    agents: list[dict] = []
+    if include_attacker:
+        attacker = get(SUT_ATTACKER)
+        _require_container(attacker)
+        nodes.append(attacker.to_node(segment))
+        agents.append({"stance": "attacker", "node": attacker.id})
+    raw = {
+        "schema": "nidavellir/v3",
+        "name": name,
+        "title": name,
+        "difficulty": "custom",
+        "requires": {"provider_class": "container"},
+        "network": {"segments": [{"name": segment}]},
+        "nodes": nodes,
+        "agents": agents,
+    }
+    ScenarioSpec.from_raw(raw)
+    return raw
+
+
 def _require_container(img: CatalogImage) -> None:
     if not img.available or img.provider_class != "container":
         raise CatalogError(

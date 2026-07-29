@@ -79,3 +79,31 @@ def test_preflight_rejects_explicit_non_running_target_state():
 
     assert result["ready"] is False
     assert "target_node" in result["failed_checks"]
+
+
+def test_oci_target_with_foothold_does_not_require_source_workspace():
+    manifest = research_session.oci_target_manifest(
+        requested_image="nginx:1.27",
+        runtime_ref="docker.io/library/nginx@sha256:" + "b" * 64,
+        resolved_digest="sha256:" + "b" * 64,
+        authorization_basis="public_oss",
+        authorization_confirmed=True,
+        scope_note=None,
+        actor="operator",
+    )
+    result = research_session.evaluate_preflight(
+        {
+            "node_sut_name": "nv-sut",
+            "node_sut_state": "running",
+            "node_kali_name": "nv-kali",
+            "node_kali_state": "running",
+            "node_kali_ssh_command": "docker exec nv-kali sh",
+        },
+        manifest,
+        include_attacker=True,
+        auto_build=True,
+    )
+
+    workspace = next(c for c in result["checks"] if c["id"] == "workspace")
+    assert workspace["required"] is False
+    assert result["ready"] is True

@@ -1,7 +1,7 @@
 """
 FastAPI REST Layer - Production Architecture (Redis/Celery)
 """
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -19,6 +19,8 @@ import urllib.parse
 import yaml
 from datetime import datetime, timedelta
 
+import requests
+
 import bindings
 import build_planner
 import catalog
@@ -31,12 +33,14 @@ import images
 import model_chat
 import model_verify
 import netguard
+import oci_intake
 import repo_introspect
 import research_session
 import scenarios
 import scoring
 import setup_phase
 import setup_proposer
+import source_bundle
 import validators
 import vulhub_import
 from auth import Principal, ensure_bootstrap_key, require_principal
@@ -916,6 +920,475 @@ def deploy_sut_arena(
         "status": "accepted",
         "instance_id": system_id,
         "target_manifest": target_manifest,
+    }
+
+
+class OciArenaRequest(BaseModel):
+    instance_id: str = Field(pattern=INSTANCE_NAME_PATTERN)
+    image: str = Field(min_length=1, max_length=500)
+    ports: list[int] = Field(default_factory=list, max_length=8)
+    include_attacker: bool = Field(default=True)
+    platform: str = Field(default="linux/amd64", max_length=32)
+    authorization_basis: str = Field(default="public_oss", max_length=32)
+    authorization_confirmed: bool = Field(default=False)
+    scope_note: str | None = Field(default=None, max_length=500)
+    provider: str | None = Field(default="docker-local", max_length=32)
+
+    @field_validator("image")
+    @classmethod
+    def _valid_oci_reference(cls, value: str) -> str:
+        value = value.strip()
+        try:
+            oci_intake.parse_reference(value)
+        except (oci_intake.OciIntakeError, netguard.UnsafeHostError) as exc:
+            raise ValueError(str(exc)) from exc
+        return value
+
+    @field_validator("ports")
+    @classmethod
+    def _ports_in_range(cls, value: list[int]) -> list[int]:
+        for port in value:
+            if not 1 <= port <= 65535:
+                raise ValueError(f"port {port} out of range 1-65535")
+        return value
+
+    @field_validator("platform")
+    @classmethod
+    def _supported_platform(cls, value: str) -> str:
+        if value not in ("linux/amd64", "linux/arm64"):
+            raise ValueError("platform must be linux/amd64 or linux/arm64")
+        return value
+
+    @field_validator("authorization_basis")
+    @classmethod
+    def _known_authorization_basis(cls, value: str) -> str:
+        if value not in research_session.AUTHORIZATION_BASES:
+            raise ValueError(
+                "authorization_basis must be one of "
+                f"{research_session.AUTHORIZATION_BASES}"
+            )
+        return value
+
+    @field_validator("provider")
+    @classmethod
+    def _provider_must_exist(cls, value: str | None) -> str | None:
+        if value is not None and value not in available_providers():
+            raise ValueError(f"unknown provider '{value}' — see GET /providers")
+        return value
+
+
+def _resolve_oci_or_422(image: str) -> dict:
+    try:
+        return oci_intake.resolve_image(image)
+    except (
+        oci_intake.OciIntakeError,
+        netguard.UnsafeHostError,
+        requests.RequestException,
+    ) as exc:
+        raise HTTPException(
+            status_code=422, detail=f"OCI target identity could not be resolved: {exc}"
+        ) from exc
+
+
+@app.post("/arenas/oci/preview")
+def preview_oci_arena(
+    req: OciArenaRequest,
+    principal: Principal = Depends(require_principal),
+):
+    """Resolve and compile a public OCI target without pulling or executing it."""
+    _require_operator(principal)
+    try:
+        target = oci_intake.resolve_image(req.image)
+        spec = catalog.build_oci_scenario(
+            req.instance_id,
+            target["runtime_ref"],
+            ports=req.ports,
+            include_attacker=req.include_attacker,
+            platform=req.platform,
+        )
+    except (
+        catalog.CatalogError,
+        oci_intake.OciIntakeError,
+        netguard.UnsafeHostError,
+        requests.RequestException,
+    ) as exc:
+        return {
+            "valid": False,
+            "errors": [str(exc)],
+            "warnings": [],
+            "topology": None,
+        }
+
+    review = _spec_review(spec, check_images=False)
+    review["target_manifest"] = research_session.oci_target_manifest(
+        requested_image=req.image,
+        runtime_ref=target["runtime_ref"],
+        resolved_digest=target["resolved_digest"],
+        authorization_basis=req.authorization_basis,
+        authorization_confirmed=req.authorization_confirmed,
+        scope_note=req.scope_note,
+        actor=principal.name,
+        platform=req.platform,
+    )
+    review["introspection"] = {
+        "kind": "oci",
+        "registry": target["registry"],
+        "repository": target["repository"],
+        "requested_ref": target["requested_ref"],
+        "runtime_ref": target["runtime_ref"],
+        "platform": req.platform,
+    }
+    if not req.authorization_confirmed:
+        review.setdefault("warnings", []).append(
+            "authorization must be confirmed before launch"
+        )
+    return review
+
+
+@app.post("/arenas/oci")
+@limiter.limit(RATE_LIMIT_DEPLOY)
+def deploy_oci_arena(
+    request: Request,
+    req: OciArenaRequest,
+    principal: Principal = Depends(require_principal),
+):
+    """Deploy a public OCI image by immutable manifest digest."""
+    _require_operator(principal)
+    if not req.authorization_confirmed:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "confirm that you are authorized: you own the target, it is public "
+                "software, or you have explicit authorization to assess it"
+            ),
+        )
+    target = _resolve_oci_or_422(req.image)
+    try:
+        spec = catalog.build_oci_scenario(
+            req.instance_id,
+            target["runtime_ref"],
+            ports=req.ports,
+            include_attacker=req.include_attacker,
+            platform=req.platform,
+        )
+    except catalog.CatalogError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    offered = infra_class_of(req.provider) if req.provider else "any"
+    if offered not in ("any", "container"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"provider '{req.provider}' provides {offered}-class infra, not container",
+        )
+
+    system_id = str(uuid.uuid4())
+    label = f"oci:{req.image}"[:64]
+    expires_at = datetime.now() + timedelta(minutes=config.LAB_TTL_MINUTES)
+    db.create_deployment(
+        system_id,
+        req.instance_id,
+        label,
+        provider=req.provider,
+        actor=principal.name,
+        expires_at=expires_at,
+    )
+    manifest = research_session.oci_target_manifest(
+        requested_image=req.image,
+        runtime_ref=target["runtime_ref"],
+        resolved_digest=target["resolved_digest"],
+        authorization_basis=req.authorization_basis,
+        authorization_confirmed=True,
+        scope_note=req.scope_note,
+        actor=principal.name,
+        platform=req.platform,
+    )
+    prearm = {
+        "include_attacker": req.include_attacker,
+        "auto_build": True,
+        "open_setup": False,
+        "target_manifest": manifest,
+        "actor": principal.name,
+    }
+    db.record_event(
+        system_id,
+        "session_prearm",
+        {**prearm, "target": target},
+        actor=principal.name,
+    )
+    logger.info(
+        "Queuing OCI arena %r (%s): image=%s digest=%s by %r",
+        req.instance_id,
+        system_id,
+        req.image,
+        target["resolved_digest"],
+        principal.name,
+    )
+    deploy_lab.delay(
+        instance_id=system_id,
+        scenario_name=label,
+        user_id=req.instance_id,
+        variables={},
+        provider=req.provider,
+        scenario_config=spec,
+        setup_prearm=prearm,
+    )
+    return {
+        "status": "accepted",
+        "instance_id": system_id,
+        "target_manifest": manifest,
+    }
+
+
+@app.post("/targets/source-bundles")
+@limiter.limit(RATE_LIMIT_DEPLOY)
+def upload_source_bundle(
+    request: Request,
+    file: UploadFile = File(...),
+    principal: Principal = Depends(require_principal),
+):
+    """Validate and persist one bounded tar/tar.gz source artifact."""
+    _require_operator(principal)
+    filename = file.filename or "source.tar"
+    lower_name = filename.lower()
+    if not lower_name.endswith((".tar", ".tar.gz", ".tgz")):
+        raise HTTPException(
+            status_code=422, detail="source bundle must be .tar, .tar.gz, or .tgz"
+        )
+    try:
+        artifact = source_bundle.ingest(file.file, filename)
+    except source_bundle.SourceBundleTooLarge as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except source_bundle.SourceBundleError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    db.record_event(
+        f"artifact:{artifact['digest']}",
+        "source_bundle_intake",
+        {
+            key: artifact[key]
+            for key in (
+                "digest",
+                "filename",
+                "upload_bytes",
+                "expanded_bytes",
+                "file_count",
+                "member_count",
+            )
+        },
+        actor=principal.name,
+    )
+    return {"status": "accepted", "artifact": artifact}
+
+
+class SourceBundleArenaRequest(BaseModel):
+    instance_id: str = Field(pattern=INSTANCE_NAME_PATTERN)
+    artifact_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    ports: list[int] = Field(default_factory=list, max_length=8)
+    include_attacker: bool = Field(default=True)
+    setup_mode: str = Field(default=setup_phase.MODE_OPERATOR)
+    time_box_seconds: int = Field(
+        default=setup_phase.DEFAULT_TIME_BOX_SECONDS,
+        ge=60,
+        le=setup_phase.MAX_TIME_BOX_SECONDS,
+    )
+    command_budget: int = Field(
+        default=setup_phase.DEFAULT_COMMAND_BUDGET,
+        ge=1,
+        le=setup_phase.MAX_COMMAND_BUDGET,
+    )
+    setup_egress: bool = Field(default=True)
+    authorization_basis: str = Field(default="owned", max_length=32)
+    authorization_confirmed: bool = Field(default=False)
+    scope_note: str | None = Field(default=None, max_length=500)
+    provider: str | None = Field(default="docker-local", max_length=32)
+
+    @field_validator("ports")
+    @classmethod
+    def _ports_in_range(cls, value: list[int]) -> list[int]:
+        for port in value:
+            if not 1 <= port <= 65535:
+                raise ValueError(f"port {port} out of range 1-65535")
+        return value
+
+    @field_validator("setup_mode")
+    @classmethod
+    def _mode_in_wizard(cls, value: str) -> str:
+        if value not in SUT_SETUP_MODES:
+            raise ValueError(f"setup_mode must be one of {SUT_SETUP_MODES}")
+        return value
+
+    @field_validator("authorization_basis")
+    @classmethod
+    def _known_authorization_basis(cls, value: str) -> str:
+        if value not in research_session.AUTHORIZATION_BASES:
+            raise ValueError(
+                "authorization_basis must be one of "
+                f"{research_session.AUTHORIZATION_BASES}"
+            )
+        return value
+
+    @field_validator("provider")
+    @classmethod
+    def _provider_must_exist(cls, value: str | None) -> str | None:
+        if value is not None and value not in available_providers():
+            raise ValueError(f"unknown provider '{value}' — see GET /providers")
+        return value
+
+
+def _bundle_artifact_or_422(digest: str) -> dict:
+    try:
+        return source_bundle.get_artifact(digest)
+    except source_bundle.SourceBundleError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/arenas/source-bundle/preview")
+def preview_source_bundle_arena(
+    req: SourceBundleArenaRequest,
+    principal: Principal = Depends(require_principal),
+):
+    """Compile an already-ingested source bundle without deploying it."""
+    _require_operator(principal)
+    try:
+        artifact = source_bundle.get_artifact(req.artifact_digest)
+        spec = catalog.build_source_bundle_scenario(
+            req.instance_id,
+            artifact["digest"],
+            artifact["payload_digest"],
+            ports=req.ports,
+            include_attacker=req.include_attacker,
+        )
+    except (source_bundle.SourceBundleError, catalog.CatalogError) as exc:
+        return {
+            "valid": False,
+            "errors": [str(exc)],
+            "warnings": [],
+            "topology": None,
+        }
+    review = _spec_review(spec, check_images=True)
+    review["target_manifest"] = research_session.source_bundle_target_manifest(
+        artifact=artifact,
+        authorization_basis=req.authorization_basis,
+        authorization_confirmed=req.authorization_confirmed,
+        scope_note=req.scope_note,
+        actor=principal.name,
+    )
+    review["introspection"] = {
+        "kind": "source_bundle",
+        **{
+            key: artifact[key]
+            for key in (
+                "filename",
+                "upload_bytes",
+                "expanded_bytes",
+                "file_count",
+                "member_count",
+                "stripped_root",
+            )
+        },
+    }
+    review["build_plan"] = {
+        "strategy": "source_bundle",
+        "executable": False,
+        "auto_build": False,
+        "reason": "validated bundle is configured only inside the disposable target",
+    }
+    if not req.authorization_confirmed:
+        review.setdefault("warnings", []).append(
+            "authorization must be confirmed before launch"
+        )
+    return review
+
+
+@app.post("/arenas/source-bundle")
+@limiter.limit(RATE_LIMIT_DEPLOY)
+def deploy_source_bundle_arena(
+    request: Request,
+    req: SourceBundleArenaRequest,
+    principal: Principal = Depends(require_principal),
+):
+    """Deploy a validated local source bundle into a disposable setup workspace."""
+    _require_operator(principal)
+    if not req.authorization_confirmed:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "confirm that you are authorized: you own the source bundle or "
+                "have explicit authorization to assess it"
+            ),
+        )
+    artifact = _bundle_artifact_or_422(req.artifact_digest)
+    try:
+        spec = catalog.build_source_bundle_scenario(
+            req.instance_id,
+            artifact["digest"],
+            artifact["payload_digest"],
+            ports=req.ports,
+            include_attacker=req.include_attacker,
+        )
+    except catalog.CatalogError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    offered = infra_class_of(req.provider) if req.provider else "any"
+    if offered not in ("any", "container"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"provider '{req.provider}' provides {offered}-class infra, not container",
+        )
+
+    system_id = str(uuid.uuid4())
+    label = f"bundle:{artifact['filename']}"[:64]
+    expires_at = datetime.now() + timedelta(minutes=config.LAB_TTL_MINUTES)
+    db.create_deployment(
+        system_id,
+        req.instance_id,
+        label,
+        provider=req.provider,
+        actor=principal.name,
+        expires_at=expires_at,
+    )
+    manifest = research_session.source_bundle_target_manifest(
+        artifact=artifact,
+        authorization_basis=req.authorization_basis,
+        authorization_confirmed=True,
+        scope_note=req.scope_note,
+        actor=principal.name,
+    )
+    prearm = {
+        "mode": req.setup_mode,
+        "time_box_seconds": req.time_box_seconds,
+        "command_budget": req.command_budget,
+        "setup_egress": req.setup_egress,
+        "include_attacker": req.include_attacker,
+        "auto_build": False,
+        "open_setup": True,
+        "target_manifest": manifest,
+        "actor": principal.name,
+    }
+    db.record_event(
+        system_id,
+        "setup_prearm",
+        {**prearm, "artifact": artifact},
+        actor=principal.name,
+    )
+    logger.info(
+        "Queuing source-bundle arena %r (%s): artifact=%s by %r",
+        req.instance_id,
+        system_id,
+        artifact["digest"],
+        principal.name,
+    )
+    deploy_lab.delay(
+        instance_id=system_id,
+        scenario_name=label,
+        user_id=req.instance_id,
+        variables={},
+        provider=req.provider,
+        scenario_config=spec,
+        setup_prearm=prearm,
+    )
+    return {
+        "status": "accepted",
+        "instance_id": system_id,
+        "target_manifest": manifest,
     }
 
 
@@ -1986,7 +2459,9 @@ def get_arena_preflight(
 
     # Pending/deploying SUT sessions already carry their immutable target in the
     # creation event. Surface it without pretending the infrastructure was checked.
-    prearm = db.list_events(instance_id, limit=1, types=("setup_prearm",))
+    prearm = db.list_events(
+        instance_id, limit=1, types=("session_prearm", "setup_prearm")
+    )
     if prearm:
         target = (prearm[0].get("payload") or {}).get("target_manifest")
         return {

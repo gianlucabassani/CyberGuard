@@ -481,10 +481,16 @@ def _canonical_node(node: dict) -> dict:
         "service": service,
         "whitebox": whitebox,
         "needs_build": needs_build,
+        # Strict OCI research targets must run the artifact's real entrypoint.
+        # If it exits, preflight reports that faithfully instead of changing the
+        # artifact by wrapping it in a shell-based keepalive.
+        "native_startup": bool(node.get("native_startup", False)),
+        "platform": node.get("platform"),
         # SUT arenas (clone-into-Ubuntu, P2-10 wizard): clone a repo read-WRITE
         # into the running box at `path` for the configurator to build/run — NOT
         # a from-source image build. Carried through verbatim for the provider.
         "sut_clone": node.get("sut_clone"),
+        "sut_bundle": node.get("sut_bundle"),
     }
     if node.get("flavor"):
         canonical["flavor"] = node["flavor"]

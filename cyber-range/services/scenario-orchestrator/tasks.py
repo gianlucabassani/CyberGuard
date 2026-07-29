@@ -113,7 +113,11 @@ def deploy_lab(self, instance_id, scenario_name, user_id, variables=None, provid
         # SUT arenas: apply the setup config captured at creation. Best-effort —
         # a failure here must not fail the (successful) deploy; the operator can
         # still open setup manually.
-        if setup_prearm and preflight_ready:
+        if (
+            setup_prearm
+            and setup_prearm.get("open_setup", True)
+            and preflight_ready
+        ):
             try:
                 _open_prearmed_setup(db, provider, instance_id, result["outputs"], setup_prearm)
             except Exception:  # noqa: BLE001 - never fail an active deploy on this

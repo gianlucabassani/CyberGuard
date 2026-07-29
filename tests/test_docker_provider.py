@@ -152,6 +152,11 @@ class _FakeContainer:
         self.exec_calls.append(cmd)
         return (0, b"")
 
+    def put_archive(self, path, data):
+        self.archives = getattr(self, "archives", [])
+        self.archives.append((path, data))
+        return True
+
     def remove(self, force=False):
         self.removed = True
 
@@ -563,6 +568,93 @@ def test_no_command_victim_gets_generic_keepalive_wrap():
     kali = by_node["kali"]
     assert "entrypoint" not in kali
     assert kali.get("command") == "sleep infinity"
+
+
+def test_native_startup_target_is_not_shell_wrapped():
+    client = _FakeClient()
+    provider = DockerLocalProvider(client=client)
+    scenario = {
+        "requires": {"provider_class": "container", "egress": "open"},
+        "nodes": [
+            {
+                "name": "target",
+                "role": "victim",
+                "image": "example/target@sha256:" + "a" * 64,
+                "native_startup": True,
+                "platform": "linux/amd64",
+                "ports": [8080],
+            },
+        ],
+    }
+
+    provider.deploy(scenario, "native-startup")
+    target = client.containers.run_kwargs[0]
+    assert "entrypoint" not in target
+    assert "command" not in target
+    assert target["platform"] == "linux/amd64"
+
+
+def test_source_bundle_is_materialized_networkless_with_git_baseline(
+    tmp_path, monkeypatch
+):
+    import io
+    import tarfile
+
+    import source_bundle
+
+    monkeypatch.setattr(
+        source_bundle.config, "SOURCE_BUNDLES_DIR", tmp_path / "bundles"
+    )
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w") as tar:
+        content = b"print('bundle')\n"
+        info = tarfile.TarInfo("project/app.py")
+        info.size = len(content)
+        tar.addfile(info, io.BytesIO(content))
+    archive.seek(0)
+    artifact = source_bundle.ingest(archive, "project.tar")
+
+    client = _FakeClient()
+    provider = DockerLocalProvider(client=client)
+    scenario = {
+        "requires": {"provider_class": "container", "egress": "open"},
+        "nodes": [
+            {
+                "name": "sut",
+                "role": "victim",
+                "image": "ubuntu:22.04",
+                "command": "sleep infinity",
+                "sut_bundle": {
+                    "digest": artifact["digest"],
+                    "payload_digest": artifact["payload_digest"],
+                    "path": "/opt/sut",
+                },
+            }
+        ],
+    }
+
+    result = provider.deploy(scenario, "bundle-provider")
+
+    assert result["success"] is True
+    helper_call = next(
+        kwargs
+        for kwargs in client.containers.run_kwargs
+        if kwargs.get("network_mode") == "none"
+    )
+    assert helper_call["detach"] is True
+    helper = next(container for container in client.containers.created if container.removed)
+    assert helper.archives[0][0] == "/src"
+    assert all(isinstance(command, list) for command in helper.exec_calls)
+    assert any("init" in command for command in helper.exec_calls)
+    assert any("commit" in command for command in helper.exec_calls)
+    victim = next(
+        kwargs
+        for kwargs in client.containers.run_kwargs
+        if kwargs.get("labels", {}).get(LABEL_NODE) == "sut"
+    )
+    volume_name = next(iter(victim["volumes"]))
+    assert victim["volumes"][volume_name] == {"bind": "/opt/sut", "mode": "rw"}
+    assert result["outputs"]["node_sut_sut_source"] == "/opt/sut"
 
 
 def test_open_url_targets_web_port_not_first_published():

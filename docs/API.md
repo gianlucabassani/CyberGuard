@@ -341,6 +341,24 @@ resolved once and the compiled scenario is pinned to the resulting Git object ID
 returned as `target_manifest.resolved_ref`. A missing or invalid ref is a `422`;
 the platform never silently falls back to the repository's default branch.
 
+`POST /arenas/oci/preview` and `POST /arenas/oci` provide the packaged-target
+counterpart. The request shape is `{instance_id, image, ports?,
+include_attacker?, platform?, authorization_basis, authorization_confirmed,
+scope_note?}`. `platform` is explicit (`linux/amd64` by default or
+`linux/arm64`) so an immutable multi-architecture index cannot select different
+binaries on different benchmark hosts.
+This phase accepts public, anonymously pullable Docker/OCI Registry v2 images.
+A tag such as `nginx:1.27` is resolved through the registry API and the scenario
+receives only `docker.io/library/nginx@sha256:…`; a supplied digest is verified
+against the registry. Redirects, local/private registry hosts, non-HTTPS token
+realms, mutable runtime tags, and private-registry credentials are not accepted.
+Preview performs metadata calls only—it does not pull or execute the image.
+
+OCI targets run their published entrypoint without the generic shell keepalive,
+so distroless images work and the artifact is not behaviorally modified. An image
+that exits is reported by the same fail-closed preflight and the configurator is
+not opened for packaged OCI targets.
+
 Both introspect the repo (M1-1) — detected language / build system / declared
 ports / base runtime — and plan the deterministic build tier (M1-2, ADR-0008), so
 the response carries `introspection` + `build_plan`. When the repo ships a
@@ -349,7 +367,7 @@ the victim **auto-builds to a version-pinned image** (`build_plan.auto_build`);
 otherwise the bare-Ubuntu + configurator flow is used. `compose` / `devcontainer` /
 `buildpack` are detected but their execution is deferred (see ADR-0008).
 
-`GET /arenas/{id}/preflight` returns the target manifest, reset contract, and the
+`GET /arenas/{id}/preflight` returns the Git or OCI target manifest, reset contract, and the
 latest infrastructure checks: immutable identity, authorization, healthy target
 node, requested foothold, provider workspace, and reset reproducibility. During
 deployment it returns `status: pending`; after provisioning it is `passed` or

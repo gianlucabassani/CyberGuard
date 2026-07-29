@@ -322,11 +322,16 @@ paginated Git evidence. Next: staged/unstaged grouping, safe untracked-file opt-
 downloadable hashed patch artifacts, before/after filesystem manifests for binary
 targets, and attaching a selected diff/hunk to a finding.
 
-**M4-B — safe target intake + reset · GIT SLICE SHIPPED (2026-07-29).**
+**M4-B — safe target intake + reset · GIT + PUBLIC OCI SLICES SHIPPED (2026-07-29).**
 - Git intake now resolves a branch/tag to an immutable object ID, compiles and
   resets from that identity, records explicit authorization/scope, and runs a
   fail-closed infrastructure preflight surfaced identically in GUI, REST and MCP.
-- Next: accept OCI image/digest, local source bundle, binary/installer, or
+- Public OCI intake resolves tags through the Registry v2 API, verifies supplied
+  digests, deploys only the digest-pinned reference, and preserves the artifact's
+  native entrypoint. The runtime platform is explicit and provider-enforced for
+  multi-architecture images. Intake performs metadata-only control-plane calls
+  and rejects private/local registries in this phase.
+- Next: accept local source bundle, binary/installer, or
   prebuilt VM image with equivalent provenance, hashes, authorization and scope.
 - Never execute target-controlled install/build logic in the control plane.
   Use a disposable build worker with bounded CPU/RAM/disk/time and explicit

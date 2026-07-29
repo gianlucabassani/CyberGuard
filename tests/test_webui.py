@@ -554,6 +554,8 @@ def test_wizard_page_renders(client):
     assert b"Software-Under-Test Wizard" in r.data and b"wiz-form" in r.data
     assert b"authorization_confirmed" in r.data
     assert b"authorized to assess it" in r.data
+    assert b'option value="oci"' in r.data
+    assert b'name="image"' in r.data
 
 
 def test_preflight_proxy_returns_target_readiness(client, monkeypatch):
@@ -583,6 +585,38 @@ def test_sut_preview_proxy_relays_unreachable_backend(client):
                     json={"instance_id": "w", "repo": "https://github.com/o/p"},
                     headers={"X-CSRFToken": token})
     assert r.status_code == 502 and "error" in r.get_json()
+
+
+def test_oci_preview_proxy_selects_oci_endpoint(client, monkeypatch):
+    import app as webui_module
+
+    captured = {}
+
+    def fake_post(path, payload):
+        captured["path"] = path
+        captured["payload"] = payload
+        return {"valid": True}, 200
+
+    monkeypatch.setattr(webui_module, "_api_post", fake_post)
+    _login(client)
+    token = _csrf_token(client, "/")
+    response = client.post(
+        "/api/arenas/sut/preview",
+        json={
+            "target_type": "oci",
+            "instance_id": "oci-preview",
+            "image": "nginx:1.27",
+            "platform": "linux/arm64",
+            "authorization_confirmed": True,
+        },
+        headers={"X-CSRFToken": token},
+    )
+
+    assert response.status_code == 200
+    assert captured["path"] == "/arenas/oci/preview"
+    assert captured["payload"]["image"] == "nginx:1.27"
+    assert captured["payload"]["platform"] == "linux/arm64"
+    assert "repo" not in captured["payload"]
 
 
 def test_grant_binding_proxy_requires_csrf(client):
