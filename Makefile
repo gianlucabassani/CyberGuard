@@ -41,7 +41,7 @@ fmt: ## Auto-format Python with ruff
 	$(RUFF) format $(ORCH) $(GATEWAY) $(HARNESS) cyber-range/services/vulnhub-importer cyber-range/webui tests
 
 security: ## Static security scan with bandit
-	$(BANDIT) -r $(ORCH) $(GATEWAY) $(HARNESS) cyber-range/services/vulnhub-importer cyber-range/webui -ll
+	$(BANDIT) -r $(ORCH) $(GATEWAY) $(HARNESS) cyber-range/services/vulnhub-importer cyber-range/webui -x '*/.venv/*' -ll
 
 check: lint security test ## Run lint + security + tests (CI parity)
 

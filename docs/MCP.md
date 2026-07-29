@@ -61,7 +61,13 @@ orchestrator re-checks the stance's capability on every call (defence in depth).
 | **operator** | author scenarios with a connected model | `scaffold_scenario`, `import_scenario` |
 
 Every stance also has the lifecycle tools: `announce_agent`, `get_briefing`,
-`arena_status`, `list_scenarios`, `deploy_arena`, `destroy_arena`.
+`arena_status`, `session_preflight`, `list_scenarios`, `deploy_arena`,
+`destroy_arena`.
+
+`session_preflight(arena_id)` should be called before research begins. It returns
+the immutable target identity, authorization basis, reset contract, readiness
+checks, and the next valid phase. Required checks fail closed in the orchestrator;
+MCP does not merely provide an advisory duplicate.
 
 ### Workspace changes
 

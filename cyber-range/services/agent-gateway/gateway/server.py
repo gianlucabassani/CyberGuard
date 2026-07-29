@@ -85,6 +85,12 @@ def build_server(cfg: GatewayConfig | None = None, context: GatewayContext | Non
         return tools.arena_status(ctx(), arena_id=arena_id)
 
     @mcp.tool()
+    def session_preflight(arena_id: str) -> dict:
+        """Verify the immutable target identity, authorization, infrastructure,
+        workspace and reset contract before research begins."""
+        return tools.session_preflight(ctx(), arena_id=arena_id)
+
+    @mcp.tool()
     def get_briefing(arena_id: str) -> dict:
         """The engagement brief + rules of engagement for the bound stance."""
         return tools.get_briefing(ctx(), arena_id=arena_id)

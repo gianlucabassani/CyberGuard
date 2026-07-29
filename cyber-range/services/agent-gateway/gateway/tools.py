@@ -135,6 +135,28 @@ def arena_status(ctx: GatewayContext, arena_id: str) -> dict:
     return res
 
 
+def session_preflight(ctx: GatewayContext, arena_id: str) -> dict:
+    """Get immutable target identity, reset contract and readiness checks."""
+    _guard(ctx, "session_preflight")
+    try:
+        result = ctx.client.session_preflight(ctx.session.api_key, arena_id)
+    except Exception:
+        _trace(ctx, "session_preflight", {}, ok=False, arena_id=arena_id)
+        raise
+    _trace(
+        ctx,
+        "session_preflight",
+        {
+            "status": (result or {}).get("status"),
+            "ready": bool((result or {}).get("ready")),
+            "failed_checks": (result or {}).get("failed_checks", []),
+        },
+        ok=True,
+        arena_id=arena_id,
+    )
+    return result
+
+
 def scaffold_scenario(ctx: GatewayContext, prompt: str,
                       provider_class: str | None = None) -> dict:
     """Operator authoring: generate a candidate v3 scenario from a prompt using

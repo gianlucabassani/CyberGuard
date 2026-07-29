@@ -381,10 +381,18 @@ def read_repo_dir(root: str) -> tuple[dict[str, str], list[str]]:
     from an already-checked-out repo directory. Pure filesystem read — no network;
     unit-testable by pointing it at a fixture directory."""
     files: dict[str, str] = {}
+    root_real = os.path.realpath(root)
     for rel in _READ_FILES:
         path = os.path.join(root, rel)
         try:
-            if os.path.isfile(path) and os.path.getsize(path) <= MAX_FILE_BYTES:
+            real = os.path.realpath(path)
+            inside = real == root_real or real.startswith(root_real + os.sep)
+            if (
+                inside
+                and not os.path.islink(path)
+                and os.path.isfile(path)
+                and os.path.getsize(path) <= MAX_FILE_BYTES
+            ):
                 with open(path, encoding="utf-8", errors="replace") as fh:
                     files[rel] = fh.read()
         except OSError:
@@ -420,13 +428,80 @@ def fetch_repo_files(repo: str, ref: str | None = None) -> tuple[dict[str, str],
             fetch = subprocess.run(  # nosec B603
                 ["git", "-C", tmp, "fetch", "--quiet", "--depth", "1", "origin", ref],
                 capture_output=True, timeout=CLONE_TIMEOUT_SECONDS, env=env,
+                check=False,
             )
             if fetch.returncode == 0:
                 subprocess.run(  # nosec B603
                     ["git", "-C", tmp, "checkout", "--quiet", "FETCH_HEAD"],
                     capture_output=True, timeout=CLONE_TIMEOUT_SECONDS, env=env,
+                    check=False,
                 )
         return read_repo_dir(tmp)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def inspect_target(repo: str, ref: str | None = None) -> dict:
+    """Strict one-pass Git intake for a reproducible SUT launch.
+
+    Unlike best-effort :func:`introspect`, a requested ref must resolve and check
+    out successfully. The returned ``resolved_commit`` is the immutable identity
+    that the deployment compiler receives instead of a mutable branch/tag.
+    Repository files are still read through the same bounded analysis path.
+    """
+    netguard.assert_public_host(repo)
+    tmp = tempfile.mkdtemp(prefix="nv-intake-")
+    env = {
+        **os.environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+    }
+    try:
+        clone = subprocess.run(  # nosec B603 — fixed argv, no shell, guarded host
+            ["git", "clone", "--quiet", "--depth", "1", "--no-tags", "--", repo, tmp],
+            capture_output=True, timeout=CLONE_TIMEOUT_SECONDS, env=env, text=True,
+            check=False,
+        )
+        if clone.returncode != 0:
+            raise subprocess.SubprocessError(
+                f"git clone failed: {(clone.stderr or '').strip()[-1000:]}"
+            )
+        if ref:
+            fetch = subprocess.run(  # nosec B603 — ref is an argv element
+                ["git", "-C", tmp, "fetch", "--quiet", "--depth", "1", "origin", ref],
+                capture_output=True, timeout=CLONE_TIMEOUT_SECONDS, env=env, text=True,
+                check=False,
+            )
+            if fetch.returncode != 0:
+                raise subprocess.SubprocessError(
+                    f"requested ref {ref!r} did not resolve: "
+                    f"{(fetch.stderr or '').strip()[-1000:]}"
+                )
+            checkout = subprocess.run(  # nosec B603 — fixed fetched object
+                ["git", "-C", tmp, "checkout", "--quiet", "--detach", "FETCH_HEAD"],
+                capture_output=True, timeout=CLONE_TIMEOUT_SECONDS, env=env, text=True,
+                check=False,
+            )
+            if checkout.returncode != 0:
+                raise subprocess.SubprocessError(
+                    f"could not check out requested ref {ref!r}: "
+                    f"{(checkout.stderr or '').strip()[-1000:]}"
+                )
+        resolved = subprocess.run(  # nosec B603 — fixed argv
+            ["git", "-C", tmp, "rev-parse", "--verify", "HEAD^{commit}"],
+            capture_output=True, timeout=CLONE_TIMEOUT_SECONDS, env=env,
+            text=True, check=True,
+        ).stdout.strip()
+        if not re.fullmatch(r"[0-9a-fA-F]{40,64}", resolved):
+            raise subprocess.SubprocessError("Git returned an invalid commit identity")
+        files, all_paths = read_repo_dir(tmp)
+        return {
+            "repo": repo,
+            "requested_ref": ref,
+            "resolved_commit": resolved.lower(),
+            **analyze(files, all_paths),
+        }
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

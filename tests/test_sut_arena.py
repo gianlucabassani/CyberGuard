@@ -91,13 +91,15 @@ def client(monkeypatch):
             return None
 
     monkeypatch.setattr(api, "deploy_lab", _FakeTask())
-    # Stub repo introspection so the endpoints never touch the network in tests
+    # Stub strict target intake so the endpoints never touch the network in tests
     # (the module itself is unit-tested in test_repo_introspect.py).
     monkeypatch.setattr(
-        api.repo_introspect, "introspect",
-        lambda repo, ref=None: {"repo": repo, "ref": ref, "language": "node",
-                                "build_system": "dockerfile", "declared_ports": [3000],
-                                "indicators": ["Dockerfile"]},
+        api.repo_introspect, "inspect_target",
+        lambda repo, ref=None: {
+            "repo": repo, "requested_ref": ref, "resolved_commit": "a" * 40,
+            "language": "node", "build_system": "dockerfile",
+            "declared_ports": [3000], "indicators": ["Dockerfile"],
+        },
     )
     key = auth.generate_api_key()
     Database().create_api_key(auth.hash_api_key(key), name="sut-tests", role="operator")
@@ -114,6 +116,7 @@ def test_sut_endpoint_accepts_and_dispatches_with_prearm(client):
         "instance_id": "sut-lab", "repo": "https://github.com/org/proj",
         "ref": "main", "ports": [3000], "setup_mode": "hitl",
         "command_budget": 20, "time_box_seconds": 900,
+        "authorization_confirmed": True,
     })
     assert resp.status_code == 200, resp.text
     sysid = resp.json()["instance_id"]
@@ -124,15 +127,22 @@ def test_sut_endpoint_accepts_and_dispatches_with_prearm(client):
     prearm = client.dispatched["setup_prearm"]
     assert prearm["mode"] == "hitl" and prearm["command_budget"] == 20
     assert prearm["setup_egress"] is True  # default
+    assert prearm["target_manifest"]["resolved_ref"] == "a" * 40
+    assert prearm["target_manifest"]["authorization"]["confirmed"] is True
 
     # config is captured at creation as an audit breadcrumb (review 1.1)
     events = Database().list_events(sysid)
     prearm_evt = next(e for e in events if e["type"] == "setup_prearm")
     assert prearm_evt["payload"]["repo"] == "https://github.com/org/proj"
     assert prearm_evt["payload"]["mode"] == "hitl"
+    assert prearm_evt["payload"]["resolved_ref"] == "a" * 40
     # M1-1: the repo introspection is captured once at deploy for the proposer.
     assert prearm_evt["payload"]["introspection"]["language"] == "node"
     assert prearm_evt["payload"]["introspection"]["declared_ports"] == [3000]
+    pending = client.get(f"/arenas/{sysid}/preflight")
+    assert pending.status_code == 200
+    assert pending.json()["status"] == "pending"
+    assert pending.json()["target"]["resolved_ref"] == "a" * 40
 
 
 def test_sut_endpoint_rejects_non_https_repo(client):
@@ -141,6 +151,15 @@ def test_sut_endpoint_rejects_non_https_repo(client):
     })
     assert resp.status_code == 422
     assert "https" in resp.text
+
+
+def test_sut_endpoint_requires_explicit_authorization(client):
+    resp = client.post("/arenas/sut", json={
+        "instance_id": "not-confirmed",
+        "repo": "https://github.com/org/proj",
+    })
+    assert resp.status_code == 422
+    assert "authorized" in resp.text
 
 
 def test_sut_endpoint_rejects_autonomous_mode(client):
@@ -234,6 +253,66 @@ def test_prearmed_setup_surfaces_connect_command():
     assert body["connect"]["sut"] == "docker exec -it nv-sut /bin/bash"
 
 
+def test_worker_preflight_failure_is_recorded_and_setup_stays_closed(monkeypatch):
+    import research_session
+    import tasks
+    from database import Database
+
+    iid = "sut-failed-preflight"
+    db = Database()
+    db.create_deployment(iid, iid, "sut:project", provider=None, actor="test")
+
+    class _FakeOrchestrator:
+        def __init__(self, provider_name=None):
+            pass
+
+        def deploy(self, *args, **kwargs):
+            return {
+                "success": True,
+                "outputs": {
+                    "node_sut_name": "nv-sut",
+                    "node_sut_state": "exited",
+                    "node_sut_sut_source": "/opt/sut",
+                },
+            }
+
+    setup_opened = []
+    monkeypatch.setattr(tasks, "Orchestrator", _FakeOrchestrator)
+    monkeypatch.setattr(
+        tasks, "_open_prearmed_setup",
+        lambda *args, **kwargs: setup_opened.append(True),
+    )
+    manifest = research_session.git_target_manifest(
+        repo="https://github.com/org/project",
+        requested_ref="main",
+        resolved_commit="a" * 40,
+        authorization_basis="public_oss",
+        authorization_confirmed=True,
+        scope_note=None,
+        actor="operator",
+    )
+
+    tasks.deploy_lab(
+        iid,
+        "sut:project",
+        "operator",
+        setup_prearm={
+            "mode": "hitl",
+            "include_attacker": False,
+            "auto_build": False,
+            "target_manifest": manifest,
+        },
+    )
+
+    event = next(
+        e for e in db.list_events(iid)
+        if e["type"] == research_session.PREFLIGHT_EVENT
+    )
+    assert event["payload"]["ready"] is False
+    assert "target_node" in event["payload"]["failed_checks"]
+    assert setup_opened == []
+
+
 # --- wizard: no-deploy preview (P3-3) ----------------------------------------
 
 
@@ -270,6 +349,7 @@ def test_sut_deploy_auto_builds_when_source_builds_enabled(client, monkeypatch):
     monkeypatch.setattr(config, "ALLOW_SOURCE_BUILD", True)
     resp = client.post("/arenas/sut", json={
         "instance_id": "sut-autobuild", "repo": "https://github.com/org/proj", "ref": "main",
+        "authorization_confirmed": True,
     })
     assert resp.status_code == 200, resp.text
     spec = client.dispatched["scenario_config"]

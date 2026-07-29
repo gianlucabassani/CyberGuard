@@ -148,6 +148,9 @@ class RestClient:
             api_key,
         )
 
+    def session_preflight(self, api_key: str, arena_id: str) -> dict:
+        return self._request("GET", f"/arenas/{arena_id}/preflight", api_key)
+
     # --- configurator stance (SUT setup phase) --------------------------------
 
     def setup_brief(self, api_key: str, arena_id: str) -> dict:

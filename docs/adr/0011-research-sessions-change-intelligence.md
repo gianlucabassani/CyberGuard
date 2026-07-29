@@ -40,12 +40,21 @@ Change intelligence is a provider capability used by REST, MCP and GUI:
   symlink-based arbitrary reads;
 - audit events retain metadata, not potentially sensitive diff bodies.
 
+Git target intake resolves the requested branch/tag to a commit before compiling
+the scenario. The target manifest stores requested and resolved refs separately,
+the operator's authorization basis/scope confirmation, and the reset strategy.
+An infrastructure preflight checks identity, authorization, target/foothold
+health, workspace availability and reset reproducibility. Required failures stop
+the pre-armed setup session from opening. REST, GUI and MCP consume the same
+event-backed result.
+
 ## Consequences
 
-The first implementation supports Git-backed docker-local workspaces. Providers
-that cannot implement the primitive fail explicitly. Closed-source research next
-requires immutable artifact intake, before/after filesystem manifests and a
-snapshot-capable local VM provider; it must not be simulated with a source diff.
+The first implementation supports Git-backed docker-local workspaces and immutable
+Git intake. Providers that cannot implement the primitive fail explicitly.
+Closed-source research next requires immutable binary/installer intake,
+before/after filesystem manifests and a snapshot-capable local VM provider; it
+must not be simulated with a source diff.
 
 The UI and MCP now agree on what changed. Future patch export and finding
 attachments must build on this capability rather than creating alternate paths.

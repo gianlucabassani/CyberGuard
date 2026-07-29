@@ -80,6 +80,16 @@ class _FakeRestClient:
             {"node": "web", "whitebox": True, "writable": False}
         ]}
 
+    def session_preflight(self, api_key, arena_id):
+        self.calls.append(("session_preflight", api_key, arena_id))
+        return {
+            "arena_id": arena_id,
+            "status": "passed",
+            "ready": True,
+            "failed_checks": [],
+            "target": {"identity": {"digest": "a" * 40}},
+        }
+
     def workspace_diff(self, api_key, arena_id, node, **options):
         self.calls.append(("workspace_diff", api_key, arena_id, node, options))
         return {
@@ -396,6 +406,14 @@ def test_workspace_tools_proxy_and_are_stance_gated():
     assert call[4]["path"] == "src/app.py" and call[4]["start_line"] == 300
     with pytest.raises(ToolNotAllowed):
         tools.workspace_status(_ctx(stance=Stance.defender), "a1")
+
+
+def test_session_preflight_is_shared_and_traced():
+    for stance in (Stance.attacker, Stance.defender, Stance.mitm, Stance.configurator):
+        ctx = _ctx(stance=stance)
+        result = tools.session_preflight(ctx, "a1")
+        assert result["ready"] is True
+        assert ("session_preflight", "cg_secret_key", "a1") in ctx.client.calls
 
 
 def test_mitm_session_registers_observe_tools_only():

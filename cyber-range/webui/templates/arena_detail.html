@@ -181,6 +181,21 @@
   </div>
 </div>
 
+<div class="card pad-0" id="preflight-card" style="margin-top:16px" hidden>
+  <div class="card-head">
+    <h3><i class="fa-solid fa-clipboard-check"></i> Research preflight</h3>
+    <span class="muted" style="font-weight:400;font-size:12.5px">— identity, authorization, infrastructure and reset validity</span>
+    <div class="spacer"></div>
+    <span id="preflight-state" class="badge badge--idle">pending</span>
+  </div>
+  <div class="preflight-target">
+    <div><span class="label">Target</span><div id="preflight-source" class="mono"></div></div>
+    <div><span class="label">Pinned identity</span><div id="preflight-identity" class="mono"></div></div>
+    <div><span class="label">Reset</span><div id="preflight-reset"></div></div>
+  </div>
+  <div id="preflight-checks" class="preflight-checks"></div>
+</div>
+
 <!-- Agent positioning (all arenas): authorize a bring-your-own agent to drive this arena
      in a stance. Authorization only — the operator then points their own agent app at the gateway. -->
 <div class="card pad-0" id="positioning-card" style="margin-top:16px"

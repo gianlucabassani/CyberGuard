@@ -58,6 +58,21 @@
           <div class="field"><label class="label">Service ports</label><input class="input mono" name="ports" id="wiz-ports" placeholder="8000"></div>
         </div>
         <label class="check" style="margin:2px 0 4px"><input type="checkbox" name="include_attacker" id="wiz-atk" checked> Add a Kali attacker foothold for the engagement</label>
+        <div class="field" style="margin-top:14px"><label class="label">Authorization basis</label>
+          <select class="select" name="authorization_basis" id="wiz-auth-basis">
+            <option value="public_oss">Public open-source project</option>
+            <option value="owned">Product or artifact I own</option>
+            <option value="authorized_assessment">Explicitly authorized assessment</option>
+          </select>
+        </div>
+        <div class="field"><label class="label">Scope note <span class="faint">(optional)</span></label>
+          <input class="input" name="scope_note" id="wiz-scope-note"
+                 maxlength="500" placeholder="Ticket, agreement, program scope, or repository policy">
+        </div>
+        <label class="check" style="margin:2px 0 4px">
+          <input type="checkbox" name="authorization_confirmed" id="wiz-auth-confirmed" required>
+          I confirm this target is in scope and I am authorized to assess it.
+        </label>
       </div>
       <!-- context panel -->
       <div class="card pad-0 wiz-ctx">

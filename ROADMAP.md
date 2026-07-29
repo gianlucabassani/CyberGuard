@@ -322,17 +322,20 @@ paginated Git evidence. Next: staged/unstaged grouping, safe untracked-file opt-
 downloadable hashed patch artifacts, before/after filesystem manifests for binary
 targets, and attaching a selected diff/hunk to a finding.
 
-**M4-B — safe target intake + reset · NEXT / highest leverage.**
-- Accept a Git ref, OCI image/digest, local source bundle, binary/installer, or
-  prebuilt VM image; record provenance, hashes, authorization and scope.
+**M4-B — safe target intake + reset · GIT SLICE SHIPPED (2026-07-29).**
+- Git intake now resolves a branch/tag to an immutable object ID, compiles and
+  resets from that identity, records explicit authorization/scope, and runs a
+  fail-closed infrastructure preflight surfaced identically in GUI, REST and MCP.
+- Next: accept OCI image/digest, local source bundle, binary/installer, or
+  prebuilt VM image with equivalent provenance, hashes, authorization and scope.
 - Never execute target-controlled install/build logic in the control plane.
   Use a disposable build worker with bounded CPU/RAM/disk/time and explicit
   egress; promote only the resulting immutable artifact.
 - Add a local libvirt/QEMU path for closed-source desktop/services, with golden
   snapshot → per-run clone → checkpoint/rollback. Containers remain the optimized
   default where they accurately model the target.
-- Add health/readiness probes and a preflight that fails early when target,
-  foothold, instrumentation or reset contracts are incomplete.
+- Extend the shipped infrastructure preflight with application-specific health
+  probes and instrumentation readiness after setup finishes.
 
 **Complete the attacker toolset to match the field.** Ship, as first-class MCP tool
 schemas layered over the shell — the primitives every serious offensive agent (XBOW,

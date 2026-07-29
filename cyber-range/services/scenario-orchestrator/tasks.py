@@ -7,6 +7,7 @@ from celery import Celery
 
 import config
 import monitor
+import research_session
 import setup_phase
 from database import Database
 from orchestrator import Orchestrator
@@ -88,10 +89,31 @@ def deploy_lab(self, instance_id, scenario_name, user_id, variables=None, provid
         db.update_deployment(
             instance_id, status="active", outputs=result["outputs"], actor="worker"
         )
+        preflight_ready = True
+        if setup_prearm and setup_prearm.get("target_manifest"):
+            preflight = research_session.evaluate_preflight(
+                result["outputs"],
+                setup_prearm["target_manifest"],
+                include_attacker=bool(setup_prearm.get("include_attacker")),
+                auto_build=bool(setup_prearm.get("auto_build")),
+            )
+            db.record_event(
+                instance_id,
+                research_session.PREFLIGHT_EVENT,
+                preflight,
+                actor="worker",
+            )
+            if not preflight["ready"]:
+                preflight_ready = False
+                logger.warning(
+                    "[%s] research preflight failed: %s",
+                    instance_id,
+                    preflight["failed_checks"],
+                )
         # SUT arenas: apply the setup config captured at creation. Best-effort —
         # a failure here must not fail the (successful) deploy; the operator can
         # still open setup manually.
-        if setup_prearm:
+        if setup_prearm and preflight_ready:
             try:
                 _open_prearmed_setup(db, provider, instance_id, result["outputs"], setup_prearm)
             except Exception:  # noqa: BLE001 - never fail an active deploy on this

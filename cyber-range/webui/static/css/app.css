@@ -337,6 +337,19 @@ select[multiple] option { padding:6px 8px; border-radius:6px; }
 .workspace-empty { display:block; padding:30px 18px; text-align:center; color:var(--muted); }
 .workspace-footer { min-height:46px; display:flex; align-items:center; gap:10px;
   padding:8px 18px; border-top:1px solid var(--line-soft); font-size:12px; }
+.preflight-target { display:grid; grid-template-columns:2fr 1fr 1fr; gap:18px;
+  padding:14px 18px; border-bottom:1px solid var(--line-soft); font-size:12px; }
+.preflight-target .label { display:block; margin-bottom:5px; }
+.preflight-target > div { min-width:0; }
+.preflight-target .mono { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.preflight-checks { display:grid; grid-template-columns:repeat(3,minmax(180px,1fr)); }
+.preflight-check { display:flex; gap:9px; padding:11px 18px;
+  border-right:1px solid var(--line-soft); border-bottom:1px solid var(--line-soft);
+  font-size:12px; line-height:1.4; }
+.preflight-check i { margin-top:2px; }
+.preflight-check--ok i { color:var(--ok); }
+.preflight-check--fail i { color:var(--danger); }
+.preflight-check--optional { opacity:.72; }
 
 /* ---------- in-arena console: positioning + configurator + live log -------- */
 .btn-xs { padding:2px 8px; font-size:11px; line-height:1.7; }
@@ -390,6 +403,7 @@ select[multiple] option { padding:6px 8px; border-radius:6px; }
 @media (max-width:760px) {
   .workspace-control, .workspace-control.grow, .workspace-base { width:100%; min-width:100%; }
   .workspace-refresh { width:100%; }
+  .preflight-target, .preflight-checks { grid-template-columns:1fr; }
   .pos-row { grid-template-columns:1fr; }
   .pos-assign-col { justify-content:flex-start; }
   .log-row { grid-template-columns:20px 1fr; }

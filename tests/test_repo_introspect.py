@@ -189,6 +189,15 @@ def test_read_repo_dir_skips_oversize_files(tmp_path):
     assert "README.md" not in files
 
 
+def test_read_repo_dir_does_not_follow_repository_symlinks(tmp_path):
+    outside = tmp_path.parent / "outside-secret.txt"
+    outside.write_text("must-not-be-read")
+    (tmp_path / "README.md").symlink_to(outside)
+    files, paths = ri.read_repo_dir(str(tmp_path))
+    assert "README.md" not in files
+    assert "README.md" in paths  # inventory may name it; contents stay unread
+
+
 def test_introspect_never_raises_on_unsafe_host(monkeypatch):
     out = ri.introspect("https://169.254.169.254/x/y")
     assert out["repo"].endswith("y") and "error" in out

@@ -333,6 +333,14 @@ and returns `{valid, summary, topology, warnings}` **without deploying** — the
 review gate the WebUI **Wizard** (`/wizard`) uses to show the planned topology
 before launch.
 
+The request must also carry `authorization_confirmed: true` and an
+`authorization_basis` of `public_oss`, `owned`, or `authorized_assessment`;
+`scope_note` optionally records a ticket, agreement, policy, or other scope
+reference. Launch fails closed without confirmation. The requested branch/tag is
+resolved once and the compiled scenario is pinned to the resulting Git object ID,
+returned as `target_manifest.resolved_ref`. A missing or invalid ref is a `422`;
+the platform never silently falls back to the repository's default branch.
+
 Both introspect the repo (M1-1) — detected language / build system / declared
 ports / base runtime — and plan the deterministic build tier (M1-2, ADR-0008), so
 the response carries `introspection` + `build_plan`. When the repo ships a
@@ -340,6 +348,13 @@ the response carries `introspection` + `build_plan`. When the repo ships a
 the victim **auto-builds to a version-pinned image** (`build_plan.auto_build`);
 otherwise the bare-Ubuntu + configurator flow is used. `compose` / `devcontainer` /
 `buildpack` are detected but their execution is deferred (see ADR-0008).
+
+`GET /arenas/{id}/preflight` returns the target manifest, reset contract, and the
+latest infrastructure checks: immutable identity, authorization, healthy target
+node, requested foothold, provider workspace, and reset reproducibility. During
+deployment it returns `status: pending`; after provisioning it is `passed` or
+`failed`. A failed required check prevents the pre-armed configurator session from
+opening.
 
 `POST /repos/synthesize-dockerfile` (operator-only) is the **tier-3 fallback** for a
 repo that ships no Dockerfile/compose/devcontainer (M1-3, Repo2Run): the operator's

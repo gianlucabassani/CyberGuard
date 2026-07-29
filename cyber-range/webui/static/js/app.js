@@ -376,6 +376,7 @@
     try { last = JSON.parse(document.getElementById("lab-data").textContent || "{}"); } catch (e) {}
     renderTopology(last);
     initWorkspaceChanges(id);
+    initResearchPreflight(id);
 
     let prevStatus = null, delay = 3000;
     const poll = () => {
@@ -398,6 +399,52 @@
         .catch(() => setTimeout(poll, 8000));
     };
     poll();
+  }
+
+  function initResearchPreflight(arenaId) {
+    const card = document.getElementById("preflight-card");
+    if (!card || !arenaId) return;
+    fetch("/api/arenas/" + encodeURIComponent(arenaId) + "/preflight")
+      .then((response) => response.json().then((body) => ({ response, body })))
+      .then(({ response, body }) => {
+        if (!response.ok || !body.target) return;
+        card.hidden = false;
+        const target = body.target || {};
+        const identity = target.identity || {};
+        const reset = body.reset_contract || {};
+        const state = document.getElementById("preflight-state");
+        state.className = "badge " +
+          (body.status === "passed" ? "badge--ok" :
+            (body.status === "failed" ? "badge--danger" : "badge--idle"));
+        state.textContent = body.status || "pending";
+        document.getElementById("preflight-source").textContent = target.source || "—";
+        document.getElementById("preflight-source").title = target.source || "";
+        document.getElementById("preflight-identity").textContent =
+          identity.digest ? identity.digest.slice(0, 16) : "resolving…";
+        document.getElementById("preflight-identity").title = identity.digest || "";
+        document.getElementById("preflight-reset").textContent =
+          reset.strategy ? reset.strategy.replace(/_/g, " ") : "—";
+        const checks = document.getElementById("preflight-checks");
+        checks.textContent = "";
+        (body.checks || []).forEach((check) => {
+          const row = document.createElement("div");
+          row.className = "preflight-check " +
+            (check.ok ? "preflight-check--ok" : "preflight-check--fail") +
+            (check.required ? "" : " preflight-check--optional");
+          const icon = document.createElement("i");
+          icon.className = "fa-solid " + (check.ok ? "fa-circle-check" : "fa-circle-xmark");
+          const text = document.createElement("div");
+          const title = document.createElement("b");
+          title.textContent = (check.id || "check").replace(/_/g, " ");
+          const detail = document.createElement("div");
+          detail.className = "muted";
+          detail.textContent = check.detail || "";
+          text.append(title, detail);
+          row.append(icon, text);
+          checks.appendChild(row);
+        });
+      })
+      .catch(() => {});
   }
 
   function initWorkspaceChanges(arenaId) {
@@ -1943,11 +1990,16 @@
         ref: document.getElementById("wiz-ref").value.trim() || null,
         ports: ports(),
         include_attacker: document.getElementById("wiz-atk").checked,
+        authorization_basis: document.getElementById("wiz-auth-basis").value,
+        authorization_confirmed: document.getElementById("wiz-auth-confirmed").checked,
+        scope_note: document.getElementById("wiz-scope-note").value.trim() || null,
       };
       const recapRows = [
         ["Repository", body.repo + (body.ref ? " @ " + body.ref : "")],
         ["Ports", body.ports.length ? body.ports.join(", ") : "—"],
         ["Attacker foothold", body.include_attacker ? "Kali" : "none"],
+        ["Authorization", body.authorization_basis.replace(/_/g, " ") +
+          (body.authorization_confirmed ? " · confirmed" : " · NOT CONFIRMED")],
         ["Configured by", document.getElementById("wiz-mode").value === "hitl" ? "HITL (propose → approve)" : "operator shell"],
         ["Setup egress", document.getElementById("wiz-egress").checked ? "open (revoked before engagement)" : "off"],
         ["Time-box / budget", document.getElementById("wiz-tb").value + "s / " + document.getElementById("wiz-budget").value + " steps"],
@@ -1959,7 +2011,9 @@
           renderSpecTopology("wiz-topo", data.topology);
           const w = (data.warnings || []).length ? "  ⚠ " + data.warnings.join("; ") : "";
           msg.className = "import-msg ok";
-          msg.textContent = "Valid ✓ " + (data.summary ? data.summary.nodes + " node(s)" : "") + w;
+          const commit = data.target_manifest && data.target_manifest.resolved_ref;
+          msg.textContent = "Valid ✓ " + (data.summary ? data.summary.nodes + " node(s)" : "") +
+            (commit ? " · pinned " + commit.slice(0, 12) : "") + w;
         } else {
           renderSpecTopology("wiz-topo", null);
           msg.className = "import-msg err";
@@ -1972,7 +2026,8 @@
       // step 1 needs a valid name + repo before advancing (uses native validity)
       if (step === 1) {
         const name = document.getElementById("wiz-name"), repo = document.getElementById("wiz-repo");
-        if (!name.reportValidity() || !repo.reportValidity()) return;
+        const auth = document.getElementById("wiz-auth-confirmed");
+        if (!name.reportValidity() || !repo.reportValidity() || !auth.reportValidity()) return;
       }
       show(Math.min(step + 1, 3));
     });

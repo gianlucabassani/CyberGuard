@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import uuid
 import sys
 import urllib.parse
@@ -31,6 +32,7 @@ import model_chat
 import model_verify
 import netguard
 import repo_introspect
+import research_session
 import scenarios
 import scoring
 import setup_phase
@@ -690,6 +692,9 @@ class SutArenaRequest(BaseModel):
         default=setup_phase.DEFAULT_COMMAND_BUDGET, ge=1, le=setup_phase.MAX_COMMAND_BUDGET
     )
     setup_egress: bool = Field(default=True)  # SUT setup almost always needs deps
+    authorization_basis: str = Field(default="public_oss", max_length=32)
+    authorization_confirmed: bool = Field(default=False)
+    scope_note: str | None = Field(default=None, max_length=500)
     provider: str | None = Field(default="docker-local", max_length=32)
 
     @field_validator("repo")
@@ -715,8 +720,18 @@ class SutArenaRequest(BaseModel):
         if value is None:
             return None
         value = value.strip()
-        if value and not _GIT_REF_RE.match(value):
-            raise ValueError("ref may contain only letters, digits, '.', '_', '/', '-'")
+        if (
+            value
+            and (
+                not _GIT_REF_RE.match(value)
+                or value.startswith("-")
+                or ".." in value
+            )
+        ):
+            raise ValueError(
+                "ref may contain only letters, digits, '.', '_', '/', '-'; "
+                "it cannot start with '-' or contain '..'"
+            )
         return value or None
 
     @field_validator("setup_mode")
@@ -726,6 +741,16 @@ class SutArenaRequest(BaseModel):
             raise ValueError(
                 f"setup_mode must be one of {SUT_SETUP_MODES} "
                 "(autonomous is not offered in the SUT wizard)"
+            )
+        return value
+
+    @field_validator("authorization_basis")
+    @classmethod
+    def _known_authorization_basis(cls, value: str) -> str:
+        if value not in research_session.AUTHORIZATION_BASES:
+            raise ValueError(
+                "authorization_basis must be one of "
+                f"{research_session.AUTHORIZATION_BASES}"
             )
         return value
 
@@ -752,20 +777,33 @@ def preview_sut_arena(req: SutArenaRequest, principal: Principal = Depends(requi
     operator reviews the planned arena before launching. Operator-only."""
     _require_operator(principal)
     try:
+        target = repo_introspect.inspect_target(req.repo, req.ref)
         spec = catalog.build_sut_scenario(
-            req.instance_id, req.repo, req.ref,
+            req.instance_id, req.repo, target["resolved_commit"],
             ports=req.ports, include_attacker=req.include_attacker,
         )
-    except catalog.CatalogError as e:
+    except (catalog.CatalogError, netguard.UnsafeHostError,
+            OSError, subprocess.SubprocessError) as e:
         return {"valid": False, "errors": [str(e)], "warnings": [], "topology": None}
     review = _spec_review(spec, check_images=True)
     # Introspect the repo so the operator sees the detected language / build system /
     # declared ports BEFORE launch (M1-1) — the review-gate payoff: a `guessed`
     # port or a missing build system is visible now, not discovered at setup time.
-    introspection = repo_introspect.summarize_for_prompt(
-        repo_introspect.introspect(req.repo, req.ref)
-    )
+    introspection = repo_introspect.summarize_for_prompt(target)
     review["introspection"] = introspection
+    review["target_manifest"] = research_session.git_target_manifest(
+        repo=req.repo,
+        requested_ref=req.ref,
+        resolved_commit=target["resolved_commit"],
+        authorization_basis=req.authorization_basis,
+        authorization_confirmed=req.authorization_confirmed,
+        scope_note=req.scope_note,
+        actor=principal.name,
+    )
+    if not req.authorization_confirmed:
+        review.setdefault("warnings", []).append(
+            "authorization must be confirmed before launch"
+        )
     # M1-2 (ADR-0008): show the planned build tier so the operator knows whether
     # this repo will auto-build to a pinned image or use the configurator fallback.
     plan = build_planner.plan_build(introspection)
@@ -789,19 +827,31 @@ def deploy_sut_arena(
     opens the setup session automatically once the arena is active. Operator-only.
     """
     _require_operator(principal)
+    if not req.authorization_confirmed:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "confirm that you are authorized: you own the target, it is public "
+                "OSS, or you have explicit authorization to assess it"
+            ),
+        )
     # Introspect the repo ONCE (M1-1) and plan the deterministic build tier (M1-2,
     # ADR-0008). Best-effort — introspect never raises. When the repo ships a
     # Dockerfile AND source builds are enabled, the victim auto-builds to a pinned
     # image (no manual configurator step); otherwise the bare-box + configurator
     # flow stays. (Sync handler → Starlette runs the short clone on the threadpool.)
-    introspection = repo_introspect.summarize_for_prompt(
-        repo_introspect.introspect(req.repo, req.ref)
-    )
+    try:
+        target = repo_introspect.inspect_target(req.repo, req.ref)
+    except (netguard.UnsafeHostError, OSError, subprocess.SubprocessError) as e:
+        raise HTTPException(
+            status_code=422, detail=f"target identity could not be resolved: {e}"
+        ) from e
+    introspection = repo_introspect.summarize_for_prompt(target)
     plan = build_planner.plan_build(introspection)
     auto_build = plan.executable and config.ALLOW_SOURCE_BUILD
     try:
         spec = catalog.build_sut_scenario(
-            req.instance_id, req.repo, req.ref,
+            req.instance_id, req.repo, target["resolved_commit"],
             ports=req.ports, include_attacker=req.include_attacker,
             build_plan=plan if auto_build else None,
         )
@@ -823,11 +873,23 @@ def deploy_sut_arena(
         provider=req.provider, actor=principal.name, expires_at=expires_at,
     )
 
+    target_manifest = research_session.git_target_manifest(
+        repo=req.repo,
+        requested_ref=req.ref,
+        resolved_commit=target["resolved_commit"],
+        authorization_basis=req.authorization_basis,
+        authorization_confirmed=True,
+        scope_note=req.scope_note,
+        actor=principal.name,
+    )
     prearm = {
         "mode": req.setup_mode,
         "time_box_seconds": req.time_box_seconds,
         "command_budget": req.command_budget,
         "setup_egress": req.setup_egress,
+        "include_attacker": req.include_attacker,
+        "auto_build": auto_build,
+        "target_manifest": target_manifest,
         "actor": principal.name,
     }
     # Capture the setup config at CREATION (review 1.1 fix): an audit breadcrumb
@@ -836,20 +898,25 @@ def deploy_sut_arena(
     # cloning; the build plan (M1-2) records the chosen tier + whether it auto-built.
     db.record_event(
         system_id, "setup_prearm",
-        {**prearm, "repo": req.repo, "ref": req.ref, "introspection": introspection,
+        {**prearm, "repo": req.repo, "ref": req.ref,
+         "resolved_ref": target["resolved_commit"], "introspection": introspection,
          "build_plan": plan.to_dict(), "auto_build": auto_build},
         actor=principal.name,
     )
     logger.info(
         f"Queuing SUT arena '{req.instance_id}' ({system_id}): repo={req.repo} "
-        f"ref={req.ref or 'default'} mode={req.setup_mode} build={plan.strategy}"
+        f"ref={target['resolved_commit']} mode={req.setup_mode} build={plan.strategy}"
         f"{' (auto)' if auto_build else ''} by '{principal.name}'"
     )
     deploy_lab.delay(
         instance_id=system_id, scenario_name=label, user_id=req.instance_id,
         variables={}, provider=req.provider, scenario_config=spec, setup_prearm=prearm,
     )
-    return {"status": "accepted", "instance_id": system_id}
+    return {
+        "status": "accepted",
+        "instance_id": system_id,
+        "target_manifest": target_manifest,
+    }
 
 
 class SynthesizeDockerfileRequest(BaseModel):
@@ -1899,6 +1966,43 @@ def list_arena_workspaces(
         for item in _accessible_workspaces(record, principal, binding)
     ]
     return {"arena_id": instance_id, "workspaces": workspaces}
+
+
+@app.get("/arenas/{instance_id}/preflight")
+def get_arena_preflight(
+    instance_id: str,
+    principal: Principal = Depends(require_principal),
+):
+    """Return the immutable target manifest and latest infrastructure preflight."""
+    record = db.get_deployment(instance_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Arena not found")
+    _require_binding(principal, instance_id, bindings.CAP_LIFECYCLE)
+    events = db.list_events(
+        instance_id, limit=1, types=(research_session.PREFLIGHT_EVENT,)
+    )
+    if events:
+        return {"arena_id": instance_id, **(events[0].get("payload") or {})}
+
+    # Pending/deploying SUT sessions already carry their immutable target in the
+    # creation event. Surface it without pretending the infrastructure was checked.
+    prearm = db.list_events(instance_id, limit=1, types=("setup_prearm",))
+    if prearm:
+        target = (prearm[0].get("payload") or {}).get("target_manifest")
+        return {
+            "arena_id": instance_id,
+            "status": "pending",
+            "phase": "infrastructure",
+            "ready": False,
+            "next": "wait_for_deployment",
+            "target": target,
+            "checks": [],
+            "failed_checks": [],
+            "reset_contract": (target or {}).get("reset"),
+        }
+    raise HTTPException(
+        status_code=404, detail="This arena has no research-session preflight"
+    )
 
 
 @app.get("/arenas/{instance_id}/workspaces/{workspace_node}/diff")

@@ -129,6 +129,13 @@ repo, and the volume is reclaimed on destroy. `whitebox: true` **without** a
 `source` just surfaces the flag. The mounted path is surfaced as
 `node_<victim>_whitebox_source`.
 
+**SUT target identity.** The wizard resolves a requested branch or tag during
+review/launch, records the requested ref separately, and passes only the resolved
+Git object ID into the scenario compiler. This makes destroy + redeploy a real
+reset contract instead of “clone whatever `main` points to now.” Launch requires
+the operator to confirm the authorization basis and records it in the target
+manifest and preflight event.
+
 ### Importing from Vulhub (P1-5)
 
 [Vulhub](https://github.com/vulhub/vulhub) ships hundreds of pre-built vulnerable

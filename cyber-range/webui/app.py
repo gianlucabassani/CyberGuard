@@ -528,6 +528,9 @@ def sut_preview_proxy():
         "ref": (body.get("ref") or "").strip() or None,
         "ports": body.get("ports") or [],
         "include_attacker": bool(body.get("include_attacker", True)),
+        "authorization_basis": body.get("authorization_basis") or "public_oss",
+        "authorization_confirmed": bool(body.get("authorization_confirmed")),
+        "scope_note": (body.get("scope_note") or "").strip() or None,
     }
     data, code = _api_post("/arenas/sut/preview", payload)
     return jsonify(data), code
@@ -676,6 +679,9 @@ def build_sut():
         "include_attacker": f.get("include_attacker") == "on",
         "setup_mode": f.get("setup_mode", "operator"),
         "setup_egress": f.get("setup_egress") == "on",
+        "authorization_basis": f.get("authorization_basis", "public_oss"),
+        "authorization_confirmed": f.get("authorization_confirmed") == "on",
+        "scope_note": (f.get("scope_note") or "").strip() or None,
     }
     # The wizard surfaces the time-box + step budget; pass them through when given.
     if f.get("time_box_seconds"):
@@ -1015,6 +1021,13 @@ def arena_workspaces_proxy(instance_id):
     """Source workspaces visible to the operator for the change viewer."""
     data, ok = _api_get(f"/arenas/{instance_id}/workspaces")
     return jsonify(data or {"workspaces": []}), (200 if ok else 502)
+
+
+@app.route("/api/arenas/<instance_id>/preflight", methods=["GET"])
+def arena_preflight_proxy(instance_id):
+    """Immutable target identity and infrastructure readiness for the arena."""
+    data, ok = _api_get(f"/arenas/{instance_id}/preflight")
+    return jsonify(data or {"status": "unavailable"}), (200 if ok else 404)
 
 
 @app.route(

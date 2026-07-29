@@ -552,6 +552,28 @@ def test_wizard_page_renders(client):
     r = client.get("/wizard")
     assert r.status_code == 200
     assert b"Software-Under-Test Wizard" in r.data and b"wiz-form" in r.data
+    assert b"authorization_confirmed" in r.data
+    assert b"authorized to assess it" in r.data
+
+
+def test_preflight_proxy_returns_target_readiness(client, monkeypatch):
+    import app as webui_module
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {
+                "status": "passed",
+                "ready": True,
+                "target": {"identity": {"digest": "a" * 40}},
+            }
+
+    monkeypatch.setattr(webui_module.requests, "get", lambda *a, **k: _FakeResp())
+    _login(client)
+    response = client.get("/api/arenas/a1/preflight")
+    assert response.status_code == 200
+    assert response.get_json()["ready"] is True
 
 
 def test_sut_preview_proxy_relays_unreachable_backend(client):
