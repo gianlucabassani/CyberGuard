@@ -87,6 +87,28 @@ class Orchestrator:
             instance_id, node, source_path, **options
         )
 
+    def workspace_untracked_file(
+        self, instance_id: str, node: str, source_path: str, path: str
+    ):
+        """Read one selected safe untracked file for an evidence export."""
+        return self.provider.workspace_untracked_file(
+            instance_id, node, source_path, path
+        )
+
+    def write_transfer_file(self, instance_id: str, node: str, path: str, content: bytes):
+        return self.provider.write_transfer_file(instance_id, node, path, content)
+
+    def read_transfer_file(self, instance_id: str, node: str, path: str):
+        return self.provider.read_transfer_file(instance_id, node, path)
+
+    def browser_visit(
+        self, instance_id: str, node: str, target_ip: str, port: int,
+        scheme: str, path: str, params: dict | None = None, **options
+    ):
+        return self.provider.browser_visit(
+            instance_id, node, target_ip, port, scheme, path, params, **options
+        )
+
     def _load_scenario(self, scenario_name: str) -> dict:
         """Load scenario YAML configuration (delegates to the registry)."""
         return load_scenario(scenario_name)

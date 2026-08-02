@@ -18,6 +18,7 @@ Notes:
   /var/run/docker.sock (root-equivalent on the host — see SECURITY.md).
 """
 import io
+import hashlib
 import logging
 import os
 import re
@@ -25,6 +26,8 @@ import shlex
 import shutil
 import subprocess  # nosec B404 — fixed argv (no shell), timeout, SSRF-guarded host
 import tempfile
+import tarfile
+import urllib.parse
 from pathlib import PurePosixPath
 
 import config
@@ -99,6 +102,8 @@ _WORKSPACE_BASE_RE = re.compile(
 _WORKSPACE_MAX_CONTEXT = 20
 _WORKSPACE_MAX_LINES = 500
 _WORKSPACE_RAW_CAP = 1024 * 1024
+_TRANSFER_ROOT = PurePosixPath("/opt/nidavellir-transfer")
+_BROWSER_MARKER_ATTR = "data-nidavellir-xss"
 
 
 def _as_git_remote(repo: str) -> str:
@@ -249,6 +254,117 @@ class DockerLocalProvider(RangeProvider):
         """A node an agent operates from (attacker role or explicit entrypoint).
         Only footholds get the package-mirror proxy wired in."""
         return node.get("role") == "attacker" or bool(node.get("entrypoint"))
+
+    def browser_visit(
+        self, instance_id, node, target_ip, port, scheme, path, params=None,
+        *, wait_ms=1500, execution_marker=None,
+    ):
+        """Render a target page in a disposable, arena-network-only Chrome.
+
+        The target IP must match the selected node's Docker attachment. This
+        repeats API scope at the provider boundary before starting the runner.
+        """
+        if scheme not in ("http", "https"):
+            return {"success": False, "error": "browser scheme must be http or https"}
+        if not path.startswith("/") or path.startswith("//") or "\x00" in path:
+            return {"success": False, "error": "browser path must be relative to the target"}
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            return {"success": False, "error": "invalid browser target port"}
+        if not 1 <= port <= 65535:
+            return {"success": False, "error": "invalid browser target port"}
+
+        target = self._find_node_container(instance_id, node)
+        target.reload()
+        networks = (target.attrs.get("NetworkSettings") or {}).get("Networks") or {}
+        network = next(
+            (name for name, data in networks.items() if data.get("IPAddress") == target_ip),
+            None,
+        )
+        expected_prefix = f"nidavellir-{self._short(instance_id)}"
+        if network is None or not network.startswith(expected_prefix):
+            return {"success": False, "error": "target IP is not attached to this arena"}
+
+        wait_ms = max(0, min(int(wait_ms), 5000))
+        query = urllib.parse.urlencode(params or {})
+        url = f"{scheme}://{target_ip}:{port}{path}" + (f"?{query}" if query else "")
+        command = [
+            "--headless=new",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--ignore-certificate-errors",
+            "--user-data-dir=/run/nidavellir-browser/profile",
+            f"--virtual-time-budget={wait_ms}",
+            "--dump-dom",
+            url,
+        ]
+        runner = None
+        try:
+            runner = self.client.containers.run(
+                image=config.HEADLESS_BROWSER_IMAGE,
+                entrypoint="chromium-browser",
+                command=command,
+                detach=True,
+                network=network,
+                labels={LABEL_LAB_ID: instance_id, LABEL_ROLE: "browser"},
+                cap_drop=["ALL"],
+                security_opt=["no-new-privileges:true"],
+                read_only=True,
+                tmpfs={
+                    "/run/nidavellir-browser": "rw,noexec,nosuid,mode=1777,size=128m"
+                },
+                environment={
+                    "HOME": "/run/nidavellir-browser",
+                    "TMPDIR": "/run/nidavellir-browser",
+                },
+                mem_limit=config.HEADLESS_BROWSER_MEMORY,
+                nano_cpus=1_000_000_000,
+                pids_limit=256,
+            )
+            result = runner.wait(timeout=config.HEADLESS_BROWSER_TIMEOUT_SECONDS)
+            status = int((result or {}).get("StatusCode", 1))
+            raw = runner.logs(stdout=True, stderr=False)
+            raw = raw if isinstance(raw, bytes) else str(raw or "").encode()
+            if status != 0:
+                stderr = runner.logs(stdout=False, stderr=True)
+                stderr = (
+                    stderr.decode("utf-8", "replace")
+                    if isinstance(stderr, bytes) else str(stderr or "")
+                )
+                return {
+                    "success": False,
+                    "error": stderr[:1000] or f"browser exited {status}",
+                }
+            dom_bytes = len(raw)
+            dom = raw[:config.HEADLESS_BROWSER_MAX_OUTPUT_BYTES].decode("utf-8", "replace")
+            title_match = re.search(r"<title[^>]*>(.*?)</title>", dom, re.I | re.S)
+            marker = (
+                f'{_BROWSER_MARKER_ATTR}="{execution_marker}"'
+                if execution_marker else None
+            )
+            return {
+                "success": True,
+                "url": url,
+                "title": re.sub(r"\s+", " ", title_match.group(1)).strip()[:512]
+                if title_match else "",
+                "rendered_dom": dom,
+                "dom_bytes": dom_bytes,
+                "dom_sha256": f"sha256:{hashlib.sha256(raw).hexdigest()}",
+                "truncated": dom_bytes > config.HEADLESS_BROWSER_MAX_OUTPUT_BYTES,
+                "executed": (marker in dom) if marker else None,
+            }
+        except Exception as exc:  # noqa: BLE001 - provider errors are returned, not leaked
+            return {"success": False, "error": f"headless browser failed: {exc}"}
+        finally:
+            if runner is not None:
+                try:
+                    runner.remove(force=True)
+                except Exception as cleanup_error:  # noqa: BLE001 - best-effort cleanup
+                    logger.warning(
+                        f"[{instance_id}] could not remove browser runner: {cleanup_error}"
+                    )
 
     # --- interface -----------------------------------------------------------
 
@@ -1422,6 +1538,11 @@ class DockerLocalProvider(RangeProvider):
         lines = diff_raw.splitlines()
         end = min(len(lines), start_line + max_lines)
         untracked = sum(1 for item in changed if item["untracked"])
+        groups = {
+            "staged": [item for item in changed if item["index"] not in (" ", "?")],
+            "unstaged": [item for item in changed if item["worktree"] not in (" ", "?")],
+            "untracked": [item for item in changed if item["untracked"]],
+        }
         return {
             "success": True,
             "node": node,
@@ -1433,6 +1554,7 @@ class DockerLocalProvider(RangeProvider):
             "changed_files": changed,
             "changed_file_count": len(changed),
             "untracked_file_count": untracked,
+            "groups": groups,
             "diff": "\n".join(lines[start_line:end]),
             "start_line": start_line,
             "returned_lines": max(0, end - start_line),
@@ -1445,6 +1567,133 @@ class DockerLocalProvider(RangeProvider):
                 if untracked else None
             ),
         }
+
+    def workspace_untracked_file(self, instance_id, node, source_path, path):
+        """Read an opted-in untracked regular file without following links."""
+        container = self._find_node_container(instance_id, node)
+        if container is None:
+            raise ValueError(f"node {node!r} not found in arena {instance_id}")
+        path = self._validate_workspace_path(path)
+        if not path:
+            raise ValueError("an untracked file path is required")
+        summary = self.workspace_diff(
+            instance_id, node, source_path, path=path, max_lines=1
+        )
+        if not summary.get("success"):
+            raise ValueError(summary.get("error", "workspace inspection failed"))
+        selected = [
+            item for item in summary.get("changed_files", [])
+            if item.get("path") == path and item.get("untracked")
+        ]
+        if not selected:
+            raise ValueError("selected path is not an untracked file")
+        archive_stream, stat = container.get_archive(
+            str(PurePosixPath(source_path) / PurePosixPath(path))
+        )
+        if stat.get("linkTarget"):
+            raise ValueError("untracked links cannot be exported")
+        size = int(stat.get("size") or 0)
+        if size > config.EVIDENCE_UNTRACKED_FILE_MAX_BYTES:
+            raise ValueError("untracked file exceeds the configured evidence limit")
+        archive_chunks = []
+        archive_bytes = 0
+        archive_cap = config.EVIDENCE_UNTRACKED_FILE_MAX_BYTES + 1024 * 1024
+        for chunk in archive_stream:
+            archive_bytes += len(chunk)
+            if archive_bytes > archive_cap:
+                raise ValueError("untracked archive exceeds the configured evidence limit")
+            archive_chunks.append(chunk)
+        raw_archive = b"".join(archive_chunks)
+        try:
+            with tarfile.open(fileobj=io.BytesIO(raw_archive), mode="r:*") as archive:
+                members = archive.getmembers()
+                if len(members) != 1 or not members[0].isreg():
+                    raise ValueError("untracked evidence must be one regular file")
+                handle = archive.extractfile(members[0])
+                content = handle.read(config.EVIDENCE_UNTRACKED_FILE_MAX_BYTES + 1)
+        except (tarfile.TarError, OSError) as exc:
+            raise ValueError("could not read untracked evidence file") from exc
+        if len(content) > config.EVIDENCE_UNTRACKED_FILE_MAX_BYTES:
+            raise ValueError("untracked file exceeds the configured evidence limit")
+        return content
+
+    @staticmethod
+    def _validate_transfer_path(path: str) -> PurePosixPath:
+        if not isinstance(path, str) or not path or "\x00" in path:
+            raise ValueError("transfer path must be a non-empty relative path")
+        clean = PurePosixPath(path)
+        if clean.is_absolute() or any(part in ("", ".", "..") for part in clean.parts):
+            raise ValueError("transfer path must stay below the transfer root")
+        if len(clean.parts) > 16 or len(str(clean).encode("utf-8")) > 512:
+            raise ValueError("transfer path is too deep or long")
+        return clean
+
+    def write_transfer_file(self, instance_id, node, path, content):
+        container = self._find_node_container(instance_id, node)
+        if container is None:
+            return {"success": False, "error": f"node {node!r} not found"}
+        try:
+            clean = self._validate_transfer_path(path)
+            if len(content) > config.TRANSFER_MAX_FILE_BYTES:
+                raise ValueError("transfer file exceeds the configured limit")
+            archive_bytes = io.BytesIO()
+            with tarfile.open(fileobj=archive_bytes, mode="w") as archive:
+                current = PurePosixPath("nidavellir-transfer")
+                root_info = tarfile.TarInfo(str(current))
+                root_info.type = tarfile.DIRTYPE
+                root_info.mode = 0o700
+                archive.addfile(root_info)
+                for part in clean.parts[:-1]:
+                    current /= part
+                    info = tarfile.TarInfo(str(current))
+                    info.type = tarfile.DIRTYPE
+                    info.mode = 0o700
+                    archive.addfile(info)
+                info = tarfile.TarInfo(str(PurePosixPath("nidavellir-transfer") / clean))
+                info.size = len(content)
+                info.mode = 0o600
+                archive.addfile(info, io.BytesIO(content))
+            if not container.put_archive("/opt", archive_bytes.getvalue()):
+                return {"success": False, "error": "provider rejected transfer archive"}
+            return {
+                "success": True,
+                "path": str(clean),
+                "container_path": str(_TRANSFER_ROOT / clean),
+                "bytes": len(content),
+            }
+        except (OSError, tarfile.TarError, ValueError) as exc:
+            return {"success": False, "error": str(exc)}
+
+    def read_transfer_file(self, instance_id, node, path):
+        container = self._find_node_container(instance_id, node)
+        if container is None:
+            raise ValueError(f"node {node!r} not found")
+        clean = self._validate_transfer_path(path)
+        stream, stat = container.get_archive(str(_TRANSFER_ROOT / clean))
+        if stat.get("linkTarget"):
+            raise ValueError("transfer links cannot be downloaded")
+        if int(stat.get("size") or 0) > config.TRANSFER_MAX_FILE_BYTES:
+            raise ValueError("transfer file exceeds the configured limit")
+        chunks = []
+        seen = 0
+        cap = config.TRANSFER_MAX_FILE_BYTES + 1024 * 1024
+        for chunk in stream:
+            seen += len(chunk)
+            if seen > cap:
+                raise ValueError("transfer archive exceeds the configured limit")
+            chunks.append(chunk)
+        try:
+            with tarfile.open(fileobj=io.BytesIO(b"".join(chunks)), mode="r:*") as archive:
+                members = archive.getmembers()
+                if len(members) != 1 or not members[0].isreg():
+                    raise ValueError("download target must be one regular file")
+                handle = archive.extractfile(members[0])
+                content = handle.read(config.TRANSFER_MAX_FILE_BYTES + 1)
+        except (OSError, tarfile.TarError) as exc:
+            raise ValueError("could not read transfer file") from exc
+        if len(content) > config.TRANSFER_MAX_FILE_BYTES:
+            raise ValueError("transfer file exceeds the configured limit")
+        return content
 
     def _find_node_container(self, instance_id, node):
         name = self._container_name(instance_id, node)

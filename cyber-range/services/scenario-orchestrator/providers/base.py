@@ -125,3 +125,57 @@ class RangeProvider(ABC):
         raise NotImplementedError(
             f"the {self.name!r} provider does not support workspace diffs yet"
         )
+
+    def workspace_untracked_file(
+        self, instance_id: str, node: str, source_path: str, path: str
+    ) -> bytes:
+        """Return one explicitly selected, bounded untracked regular file.
+
+        This is intentionally separate from ``workspace_diff``: merely listing
+        changes must never follow an untracked symlink or open its contents.
+        Providers must verify that the selected path is currently untracked and
+        a regular file before returning bytes.
+        """
+        raise NotImplementedError(
+            f"the {self.name!r} provider does not support untracked evidence yet"
+        )
+
+    def write_transfer_file(
+        self, instance_id: str, node: str, path: str, content: bytes
+    ) -> dict:
+        """Write one bounded file below the provider-owned foothold transfer root."""
+        raise NotImplementedError(
+            f"the {self.name!r} provider does not support file upload yet"
+        )
+
+    def read_transfer_file(
+        self, instance_id: str, node: str, path: str
+    ) -> bytes:
+        """Read one bounded regular file below the foothold transfer root."""
+        raise NotImplementedError(
+            f"the {self.name!r} provider does not support file download yet"
+        )
+
+    def browser_visit(
+        self,
+        instance_id: str,
+        node: str,
+        target_ip: str,
+        port: int,
+        scheme: str,
+        path: str,
+        params: dict[str, str] | None = None,
+        *,
+        wait_ms: int = 1500,
+        execution_marker: str | None = None,
+    ) -> dict:
+        """Render one arena-bound target page in a disposable browser.
+
+        The control plane derives ``target_ip``/``port`` from provider outputs;
+        callers never supply an arbitrary URL. Providers must attach the runner
+        only to the selected target's arena network and bound time/resources and
+        returned content.
+        """
+        raise NotImplementedError(
+            f"the {self.name!r} provider does not support headless browsing yet"
+        )

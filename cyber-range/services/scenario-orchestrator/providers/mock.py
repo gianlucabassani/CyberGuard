@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Seconds of fake provisioning delay (visible status progression in the UI).
 MOCK_DEPLOY_DELAY = 2
+_TRANSFER_FILES: dict[tuple[str, str, str], bytes] = {}
 
 
 class MockProvider(RangeProvider):
@@ -100,5 +101,36 @@ class MockProvider(RangeProvider):
                 {"src": "10.0.0.3", "dst": "10.0.0.2", "proto": "tcp", "sport": 51020, "dport": 80},
                 {"src": "10.0.0.2", "dst": "10.0.0.3", "proto": "tcp", "sport": 80, "dport": 51020},
             ],
+            "note": "simulated; MOCK_MODE",
+        }
+
+    def write_transfer_file(self, instance_id, node, path, content):
+        _TRANSFER_FILES[(instance_id, node, path)] = bytes(content)
+        return {
+            "success": True, "path": path,
+            "container_path": f"/opt/nidavellir-transfer/{path}",
+            "bytes": len(content),
+        }
+
+    def read_transfer_file(self, instance_id, node, path):
+        try:
+            return _TRANSFER_FILES[(instance_id, node, path)]
+        except KeyError as exc:
+            raise ValueError("transfer file was not found") from exc
+
+    def browser_visit(
+        self, instance_id, node, target_ip, port, scheme, path, params=None,
+        *, wait_ms=1500, execution_marker=None,
+    ):
+        query = "&".join(f"{key}={value}" for key, value in (params or {}).items())
+        url = f"{scheme}://{target_ip}:{port}{path}" + (f"?{query}" if query else "")
+        return {
+            "success": True,
+            "url": url,
+            "title": "Simulated browser",
+            "rendered_dom": "<html><body>simulated; MOCK_MODE</body></html>",
+            "dom_bytes": 48,
+            "dom_sha256": "",
+            "executed": False if execution_marker else None,
             "note": "simulated; MOCK_MODE",
         }

@@ -48,15 +48,16 @@ part 3: `scoring.py`, wired into `POST /arenas/{id}/findings` and
    (XBOW / Project-Naptime "perfect verification"; CVE-Bench attack-outcome
    monitors). Verification is deterministic — no LLM. Two families:
    **active** validators run at finding-report time and observe the effect
-   (`reflected_xss`: a unique nonce reflected *unescaped* in an executable HTML
-   context, with a pluggable headless-browser confirmer shared with M4;
+   (`reflected_xss`: a platform-owned nonce payload must execute in the
+   arena-scoped headless browser and write its marker into the rendered DOM;
    `marker`: a planted secret disclosed by injection; `oast_callback`: an
    out-of-band callback); **passive** `correlate_crash` ties a finding to a
    crash-oracle signal on its node (the no-manifest credit path). The effect
-   functions are injected, so the module is pure/offline-testable; the API binds a
-   real `http_fn` **fixed to the arena's own victim** (path + params only, never an
-   arbitrary host — a validator can't be turned into an SSRF primitive), backed by a
-   foothold `curl`. `confirmed` is **tri-state**: `True` (verified), `False`
+   functions are injected, so the module is pure/offline-testable; the API binds
+   HTTP/browser probes **fixed to the arena's own victim** (path + params only,
+   never an arbitrary host — a validator can't become an SSRF primitive), backed
+   by a foothold `curl` or arena-network browser. `confirmed` is **tri-state**:
+   `True` (verified), `False`
    (refuted — probe ran, effect absent), `None` (unknown — no applicable validator
    or the probe couldn't run). `None` never credits *or* discredits; only `True`
    earns confirmed credit. The verification verdict is operator-only — redacted from
@@ -107,11 +108,10 @@ part 3: `scoring.py`, wired into `POST /arenas/{id}/findings` and
   record M3 promotes into an eval dataset. Discovery mode + the milestone ladder
   mean a no-manifest SUT arena and a failed run are both still scorable.
 - Negative / cost (items 6–7): active validation is best-effort — it needs a
-  foothold with `curl` and a reachable victim web port, and degrades to
+  reachable victim web port and the relevant probe runtime, and degrades to
   `confirmed: null` (unverified) otherwise, so "unverified" ≠ "not vulnerable".
-  The reflected-XSS reflection check is a strong deterministic baseline but the
-  authoritative execution oracle is the headless browser (wired in M4). Token/cost
+  Reflected XSS uses the M4 headless browser as its authoritative execution oracle.
+  Token/cost
   metrics are only as good as what the agent announces.
 - Follow-ups: M3 exports the scored run (OpenInference-aligned trace → dataset) and
-  ships the reference harness; M4 supplies the headless-browser execution oracle
-  that upgrades the XSS validator from reflection to confirmed-execution.
+  ships the reference harness.

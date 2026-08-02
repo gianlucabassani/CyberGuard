@@ -68,8 +68,7 @@ cross-referenced so `.agent/backlog/BACKLOG.md` and the ADRs stay traceable.
   (`monitor.py`), deterministic "perfect-verification" validators (`validators.py`),
   and the structured scored verdict with benchmark/discovery modes + milestone
   partial credit (`scoring.py`), all event-backed and provider-agnostic. ADR-0009
-  Accepted. *(Remaining: the headless-browser execution oracle that upgrades the XSS
-  validator from reflection to confirmed-execution rides with M4.)*
+  Accepted. The M4 headless-browser oracle now confirms XSS by observed execution.
 - **Ops:** `MOCK_MODE` makes the whole flow demoable/testable with no cloud;
   `make check` (ruff + bandit + pytest) green; CI on SQLite + Postgres.
 
@@ -316,11 +315,12 @@ attach an authorized target, reset it, inspect what changed, collect evidence,
 and reproduce a finding without depending on a model. MCP automates those same
 operations rather than creating a separate product.
 
-**M4-A — change intelligence · INITIAL SLICE SHIPPED (2026-07-29).**
+**M4-A — change intelligence · SOURCE EVIDENCE SLICE SHIPPED (2026-08-02).**
 `workspace_status` / `workspace_diff` and the arena GUI provide the same clean,
-paginated Git evidence. Next: staged/unstaged grouping, safe untracked-file opt-in,
-downloadable hashed patch artifacts, before/after filesystem manifests for binary
-targets, and attaching a selected diff/hunk to a finding.
+paginated Git evidence, grouped as staged/unstaged/untracked. Explicitly selected
+regular UTF-8 untracked files can be included safely; complete views export as
+arena-scoped SHA-256 patch artifacts and attach to findings by verified digest in
+REST, MCP and GUI. Next: before/after filesystem manifests for binary targets.
 
 **M4-B — safe target intake + reset · GIT + PUBLIC OCI + LOCAL BUNDLE SLICES SHIPPED (2026-07-29).**
 - Git intake now resolves a branch/tag to an immutable object ID, compiles and
@@ -349,11 +349,13 @@ targets, and attaching a selected diff/hunk to a finding.
 **Complete the attacker toolset to match the field.** Ship, as first-class MCP tool
 schemas layered over the shell — the primitives every serious offensive agent (XBOW,
 Strix, CAI) centres on:
-- **`upload_file` / `download_file`** (get payloads in, evidence out).
+- ✅ **`upload_file` / `download_file`** (shipped 2026-08-02): foothold-only,
+  fixed-root, size-bounded, chunked, hashed and body-free in audit traces.
 - **HTTP interception proxy** (inspect/replay/modify requests — the core web-testing
   primitive).
-- **Headless browser** (JS-heavy targets; **doubles as the M2 XSS validator** — one
-  build serves both).
+- ✅ **Headless browser** (shipped 2026-08-02): arena-target/path-only disposable
+  Chromium with bounded DOM+digest output; **doubles as the M2 XSS execution
+  validator** through a platform-owned DOM marker.
 - **Python / code-exec sandbox** for PoC development (a confined, resource-capped
   scratch container — *not* on the orchestrator's docker.sock; see the isolation note).
 - **SSH tunnelling** (pivot/port-forward through the foothold).

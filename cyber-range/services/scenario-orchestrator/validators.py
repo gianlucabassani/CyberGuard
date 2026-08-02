@@ -12,7 +12,7 @@ Two families:
 
 * **Active validators** run when a finding is reported and exercise the claimed
   weakness against the arena, observing the effect: a reflected-XSS nonce that
-  comes back unescaped in an executable context, an out-of-band OAST callback, or
+  executes and writes a browser DOM marker, an out-of-band OAST callback, or
   a planted marker disclosed by injection. The effect functions (`http_fn`,
   `browser_fn`, `oast_fn`) are **injected**, so this module is pure and
   unit-testable offline (like `monitor.detect_signals` / `dockerfile_synth`). The
@@ -52,7 +52,7 @@ _CRASH_KINDS = frozenset({"crash", "sanitizer_abort", "resource_exhaustion"})
 # finding carries enough to probe. Conservative: only CWEs with an unambiguous,
 # deterministic observable are mapped; everything else stays unverifiable (None).
 _CWE_DEFAULT = {
-    "CWE-79": REFLECTED_XSS,   # reflected XSS -> nonce reflected unescaped
+    "CWE-79": REFLECTED_XSS,   # reflected XSS -> browser-observed execution
     "CWE-89": MARKER,          # SQLi -> a planted marker disclosed in the body
     "CWE-918": OAST_CALLBACK,  # SSRF -> out-of-band callback
     "CWE-611": OAST_CALLBACK,  # XXE -> out-of-band callback
@@ -137,16 +137,20 @@ _ESCAPED = re.compile(r"&(lt|gt|#0*60|#0*62|amp|quot|#x3c|#x3e);", re.IGNORECASE
 
 def _validate_reflected_xss(finding, http_fn, browser_fn, nonce) -> ValidationResult:
     path = (finding or {}).get("path")
-    if not path or http_fn is None:
+    if not path or (http_fn is None and browser_fn is None):
         return _unverifiable(
-            "reflected-XSS needs a target path and an arena http probe", REFLECTED_XSS
+            "reflected-XSS needs a target path and an arena probe", REFLECTED_XSS
         )
     nonce = nonce or f"nv{uuid.uuid4().hex[:10]}"
     # Wrap the nonce in a tag so a genuine HTML-context reflection is detectable;
     # the nonce alone would also match a value echoed inside an attribute/text.
-    payload = (finding.get("payload") or "<svg/onload=NONCE>").replace("NONCE", nonce)
-    if nonce not in payload:  # agent supplied a payload without our marker slot
-        payload = f"{payload}{nonce}"
+    # Use a platform-owned payload: the nonce is written into the rendered DOM
+    # only if the event handler actually executes. The agent's payload is useful
+    # evidence, but never controls the confirmation oracle.
+    payload = (
+        "<svg onload=\"document.documentElement.setAttribute("
+        f"'data-nidavellir-xss','{nonce}')\"></svg>"
+    )
     param = finding.get("param") or "q"
     params = {param: payload}
 
@@ -163,8 +167,10 @@ def _validate_reflected_xss(finding, http_fn, browser_fn, nonce) -> ValidationRe
                 "payload executed in a headless browser",
                 f"{path}?{param}=<payload with {nonce}>",
             )
-        # Browser says no-execute: fall through to the reflection check before
-        # calling it refuted (the payload may execute via a path the check missed).
+        return ValidationResult(
+            False, REFLECTED_XSS, "payload did not execute in the headless browser",
+            f"{path}?{param}=<platform execution probe>",
+        )
 
     try:
         resp = http_fn(path, params) or {}
@@ -179,10 +185,9 @@ def _validate_reflected_xss(finding, http_fn, browser_fn, nonce) -> ValidationRe
     # Reflected — is it in an executable (unescaped) context? If the only
     # occurrences are HTML-entity-escaped, the app is defending correctly.
     if _reflected_unescaped(body, nonce):
-        return ValidationResult(
-            True, REFLECTED_XSS,
-            "payload reflected unescaped in an executable HTML context",
-            _snip(_context(body, nonce)),
+        return _unverifiable(
+            "payload reflected unescaped, but execution needs the headless browser",
+            REFLECTED_XSS,
         )
     return ValidationResult(
         False, REFLECTED_XSS,

@@ -54,10 +54,10 @@ orchestrator re-checks the stance's capability on every call (defence in depth).
 
 | Stance | Purpose | Stance tools |
 |---|---|---|
-| **attacker** | offensive testing from the foothold | `get_topology`, `list_targets`, `run_command`, `workspace_status`, `workspace_diff`, `report_finding` |
+| **attacker** | offensive testing from the foothold | `get_topology`, `list_targets`, `run_command`, `browser_visit`, `upload_file`, `download_file`, `workspace_status`, `workspace_diff`, `workspace_patch_artifact`, `report_finding` |
 | **defender** | detection over the event feed | `get_topology`, `query_events` |
 | **mitm** | in-path traffic observation | `get_topology`, `observe_traffic` |
-| **configurator** | bring a software-under-test up before the engagement | `get_setup_brief`, `workspace_status`, `workspace_diff`, `propose_setup_step`, `await_setup_step`, `run_setup_step`, `upload_file`, `finish_setup` |
+| **configurator** | bring a software-under-test up before the engagement | `get_setup_brief`, `workspace_status`, `workspace_diff`, `workspace_patch_artifact`, `propose_setup_step`, `await_setup_step`, `run_setup_step`, `upload_file`, `finish_setup` |
 | **operator** | author scenarios with a connected model | `scaffold_scenario`, `import_scenario` |
 
 Every stance also has the lifecycle tools: `announce_agent`, `get_briefing`,
@@ -80,6 +80,29 @@ start_line=0, max_lines=300)` returns changed-file status and one bounded diff
 page. Follow `next_start_line` for large patches. Untracked names are reported,
 but their content is not read until tracked, preventing an untrusted symlink from
 turning the viewer into an arbitrary-file reader.
+`workspace_patch_artifact(...)` exports the complete bounded view as a SHA-256
+artifact and returns the exact patch plus its digest. Pass explicitly selected
+regular UTF-8 paths in `include_untracked_paths` when their contents are needed.
+The digest can then be supplied to `report_finding` through
+`evidence_artifact_digests`, binding reproducible source evidence to the finding.
+
+### File transfer
+
+`upload_file(arena_id, path, content_b64, node=null)` places a payload below the
+foothold's fixed `/opt/nidavellir-transfer` root. `download_file(...)` retrieves a
+regular file in bounded base64 chunks; follow `next_offset` and verify the stable
+whole-file `digest`. Neither tool accepts an absolute/traversing path, neither can
+target a victim directly, and trace/event records omit file bodies.
+
+### Headless browser
+
+`browser_visit(arena_id, node, path="/", params={}, wait_ms=1500)` renders a
+JavaScript-heavy target and returns bounded DOM plus its SHA-256. It is charged
+against the session step budget and traced without query values or response body.
+There is deliberately no URL argument: the orchestrator resolves an in-scope,
+non-foothold arena node and the provider attaches disposable Chromium only to that
+node's arena segment. This is also the execution oracle used when `report_finding`
+validates reflected XSS.
 
 ## Reporting a finding
 

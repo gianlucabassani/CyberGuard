@@ -80,6 +80,40 @@ class RestClient:
             json={"node": node, "command": command, "timeout": timeout},
         )
 
+    def transfer_upload(
+        self, api_key: str, arena_id: str, path: str, content_b64: str,
+        node: str | None = None,
+    ) -> dict:
+        body = {"path": path, "content_b64": content_b64}
+        if node:
+            body["node"] = node
+        return self._request(
+            "POST", f"/arenas/{arena_id}/files/upload", api_key, json=body
+        )
+
+    def transfer_download(
+        self, api_key: str, arena_id: str, path: str, node: str | None = None,
+        offset: int = 0, max_bytes: int = 262144,
+    ) -> dict:
+        body = {"path": path, "offset": int(offset), "max_bytes": int(max_bytes)}
+        if node:
+            body["node"] = node
+        return self._request(
+            "POST", f"/arenas/{arena_id}/files/download", api_key, json=body
+        )
+
+    def browser_visit(
+        self, api_key: str, arena_id: str, node: str, path: str = "/",
+        params: dict[str, str] | None = None, wait_ms: int = 1500,
+    ) -> dict:
+        return self._request(
+            "POST", f"/arenas/{arena_id}/browser/visit", api_key,
+            json={
+                "node": node, "path": path, "params": params or {},
+                "wait_ms": int(wait_ms),
+            },
+        )
+
     def list_events(self, api_key: str, arena_id: str, limit: int = 100) -> dict:
         return self._request(
             "GET", f"/deployments/{arena_id}/events?limit={int(limit)}", api_key
@@ -96,7 +130,8 @@ class RestClient:
                        cwe: str | None = None, node: str | None = None,
                        evidence: str | None = None, path: str | None = None,
                        param: str | None = None, payload: str | None = None,
-                       oast_token: str | None = None, poc: str | None = None) -> dict:
+                       oast_token: str | None = None, poc: str | None = None,
+                       evidence_artifact_digests: list[str] | None = None) -> dict:
         body: dict = {"title": title}
         # Only send set fields; path/param/payload/oast_token are the optional
         # verification inputs that let the orchestrator ACTIVELY confirm a finding;
@@ -106,6 +141,8 @@ class RestClient:
                          ("oast_token", oast_token), ("poc", poc)):
             if val:
                 body[key] = val
+        if evidence_artifact_digests:
+            body["evidence_artifact_digests"] = evidence_artifact_digests
         return self._request("POST", f"/arenas/{arena_id}/findings", api_key, json=body)
 
     def announce_agent(self, api_key: str, arena_id: str, model: str, provider: str,
@@ -146,6 +183,24 @@ class RestClient:
             f"/arenas/{arena_id}/workspaces/{encoded_node}/diff?"
             f"{urllib.parse.urlencode(query)}",
             api_key,
+        )
+
+    def workspace_patch_artifact(
+        self, api_key: str, arena_id: str, node: str, *, base: str = "HEAD",
+        path: str | None = None, context_lines: int = 3,
+        include_untracked_paths: list[str] | None = None,
+    ) -> dict:
+        body = {
+            "base": base,
+            "context_lines": int(context_lines),
+            "include_untracked_paths": include_untracked_paths or [],
+        }
+        if path:
+            body["path"] = path
+        encoded_node = urllib.parse.quote(node, safe="")
+        return self._request(
+            "POST", f"/arenas/{arena_id}/workspaces/{encoded_node}/patch-artifacts",
+            api_key, json=body,
         )
 
     def session_preflight(self, api_key: str, arena_id: str) -> dict:

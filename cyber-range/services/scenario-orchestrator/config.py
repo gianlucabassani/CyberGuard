@@ -79,6 +79,47 @@ SOURCE_BUNDLE_STORE_MAX_BYTES = int(
     os.getenv("SOURCE_BUNDLE_STORE_MAX_BYTES", str(2 * 1024 * 1024 * 1024))
 )
 
+# Content-addressed research evidence (ROADMAP M4-A). Artifacts are stored below
+# an arena-derived directory, so an identical patch in two arenas never grants
+# cross-arena access. Patch payloads and the aggregate store are independently
+# bounded; audit events retain only their digest and metadata.
+EVIDENCE_ARTIFACTS_DIR = Path(
+    os.getenv("EVIDENCE_ARTIFACTS_DIR", str(DATA_DIR / "evidence-artifacts"))
+)
+EVIDENCE_ARTIFACT_MAX_BYTES = int(
+    os.getenv("EVIDENCE_ARTIFACT_MAX_BYTES", str(1024 * 1024))
+)
+EVIDENCE_UNTRACKED_FILE_MAX_BYTES = int(
+    os.getenv("EVIDENCE_UNTRACKED_FILE_MAX_BYTES", str(256 * 1024))
+)
+EVIDENCE_ARTIFACT_STORE_MAX_BYTES = int(
+    os.getenv("EVIDENCE_ARTIFACT_STORE_MAX_BYTES", str(2 * 1024 * 1024 * 1024))
+)
+
+# Foothold file transfer (ROADMAP M4). The API accepts only relative paths below
+# the provider-owned transfer root and chunks downloads to keep MCP context and
+# HTTP memory bounded.
+TRANSFER_MAX_FILE_BYTES = int(
+    os.getenv("TRANSFER_MAX_FILE_BYTES", str(1024 * 1024))
+)
+TRANSFER_CHUNK_BYTES = int(
+    os.getenv("TRANSFER_CHUNK_BYTES", str(256 * 1024))
+)
+
+# Arena-scoped headless browser (ROADMAP M4). The runner is a disposable Chrome
+# headless-shell container attached only to the selected arena segment. Output,
+# wall time, virtual JS time and container resources are all bounded.
+HEADLESS_BROWSER_IMAGE = os.getenv(
+    "HEADLESS_BROWSER_IMAGE", "zenika/alpine-chrome:124"
+)
+HEADLESS_BROWSER_TIMEOUT_SECONDS = int(
+    os.getenv("HEADLESS_BROWSER_TIMEOUT_SECONDS", "20")
+)
+HEADLESS_BROWSER_MAX_OUTPUT_BYTES = int(
+    os.getenv("HEADLESS_BROWSER_MAX_OUTPUT_BYTES", str(64 * 1024))
+)
+HEADLESS_BROWSER_MEMORY = os.getenv("HEADLESS_BROWSER_MEMORY", "512m")
+
 # OPENSTACK CREDENTIALS
 OS_USERNAME = os.getenv("OS_USERNAME")
 OS_PASSWORD = os.getenv("OS_PASSWORD")

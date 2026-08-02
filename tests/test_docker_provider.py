@@ -72,6 +72,9 @@ def test_workspace_diff_is_bounded_and_disables_repo_git_extensions():
     assert result["next_start_line"] == 2
     assert result["changed_file_count"] == 2
     assert result["untracked_file_count"] == 1
+    assert result["groups"]["staged"] == []
+    assert [item["path"] for item in result["groups"]["unstaged"]] == ["app.py"]
+    assert [item["path"] for item in result["groups"]["untracked"]] == ["notes.txt"]
     diff_call = next(call for call in container.calls if "diff" in call)
     assert "--no-ext-diff" in diff_call and "--no-textconv" in diff_call
     assert "core.hooksPath=/dev/null" in diff_call
@@ -95,6 +98,75 @@ def test_workspace_diff_rejects_arbitrary_revision_expression():
     )
     assert result["success"] is False
     assert "base must be" in result["error"]
+
+
+def test_headless_browser_is_hardened_arena_bound_and_detects_execution_marker():
+    class Runner:
+        removed = False
+
+        def wait(self, timeout):
+            assert timeout == config.HEADLESS_BROWSER_TIMEOUT_SECONDS
+            return {"StatusCode": 0}
+
+        def logs(self, stdout=True, stderr=True):
+            if stderr and not stdout:
+                return b"chromium diagnostic"
+            return (
+                b'<html data-nidavellir-xss="nv123"><head><title>Rendered</title>'
+                b"</head><body>done</body></html>"
+            )
+
+        def remove(self, force=False):
+            self.removed = force
+
+    class Containers:
+        def __init__(self):
+            self.kwargs = None
+            self.runner = Runner()
+
+        def run(self, **kwargs):
+            self.kwargs = kwargs
+            return self.runner
+
+    class Client:
+        def __init__(self):
+            self.containers = Containers()
+
+    target = _FakeContainer(
+        "nv-abcd1234-victim",
+        {LABEL_LAB_ID: "abcd1234-rest", LABEL_NODE: "victim"},
+        "nidavellir-abcd1234",
+    )
+    provider = DockerLocalProvider(client=Client())
+    provider._find_node_container = lambda _arena, _node: target
+    result = provider.browser_visit(
+        "abcd1234-rest", "victim", "172.99.0.10", 80, "http", "/search",
+        {"q": "a b"}, wait_ms=750, execution_marker="nv123",
+    )
+    assert result["success"] is True and result["executed"] is True
+    assert result["title"] == "Rendered"
+    assert "diagnostic" not in result["rendered_dom"]
+    kwargs = provider.client.containers.kwargs
+    assert kwargs["network"] == "nidavellir-abcd1234"
+    assert kwargs["entrypoint"] == "chromium-browser"
+    assert "--headless=new" in kwargs["command"]
+    assert kwargs["cap_drop"] == ["ALL"] and kwargs["read_only"] is True
+    assert kwargs["security_opt"] == ["no-new-privileges:true"]
+    assert "/search?q=a+b" in kwargs["command"][-1]
+    assert provider.client.containers.runner.removed is True
+
+
+def test_headless_browser_rejects_target_ip_not_owned_by_node():
+    target = _FakeContainer(
+        "nv-abcd1234-victim", {LABEL_NODE: "victim"}, "nidavellir-abcd1234"
+    )
+    provider = DockerLocalProvider(client=_FakeClient())
+    provider._find_node_container = lambda _arena, _node: target
+    result = provider.browser_visit(
+        "abcd1234-rest", "victim", "169.254.169.254", 80, "http", "/"
+    )
+    assert result["success"] is False
+    assert "not attached" in result["error"]
 
 
 def test_workspace_diff_falls_back_to_read_only_networkless_git_helper():
@@ -126,6 +198,76 @@ def test_workspace_diff_falls_back_to_read_only_networkless_git_helper():
         call["volumes"] == {"nv-source": {"bind": "/workspace", "mode": "ro"}}
         for call in helper_calls
     )
+
+
+def test_untracked_evidence_requires_selected_regular_bounded_file(monkeypatch):
+    provider = DockerLocalProvider(client=_FakeClient())
+    container = _WorkspaceContainer()
+    payload = io.BytesIO()
+    with tarfile.open(fileobj=payload, mode="w") as archive:
+        info = tarfile.TarInfo("notes.txt")
+        info.size = 5
+        archive.addfile(info, io.BytesIO(b"proof"))
+    container.get_archive = lambda _path: (
+        iter([payload.getvalue()]), {"size": 5, "linkTarget": ""}
+    )
+    provider._find_node_container = lambda _arena, _node: container
+    monkeypatch.setattr(
+        provider,
+        "workspace_diff",
+        lambda *_args, **_kwargs: {
+            "success": True,
+            "changed_files": [{"path": "notes.txt", "untracked": True}],
+        },
+    )
+
+    assert provider.workspace_untracked_file(
+        "arena", "victim", "/opt/sut", "notes.txt"
+    ) == b"proof"
+    container.get_archive = lambda _path: (
+        iter([payload.getvalue()]), {"size": 5, "linkTarget": "/etc/passwd"}
+    )
+    with pytest.raises(ValueError, match="links"):
+        provider.workspace_untracked_file(
+            "arena", "victim", "/opt/sut", "notes.txt"
+        )
+
+
+def test_foothold_transfer_uses_fixed_root_and_round_trips_regular_file():
+    provider = DockerLocalProvider(client=_FakeClient())
+    container = _WorkspaceContainer()
+    uploaded = {}
+
+    def put_archive(root, raw):
+        uploaded.update(root=root, raw=raw)
+        return True
+
+    container.put_archive = put_archive
+    provider._find_node_container = lambda _arena, _node: container
+    result = provider.write_transfer_file(
+        "arena", "jump", "payloads/poc.py", b"print('proof')\n"
+    )
+    assert result["success"] is True
+    assert uploaded["root"] == "/opt"
+    with tarfile.open(fileobj=io.BytesIO(uploaded["raw"]), mode="r:*") as archive:
+        member = archive.getmember("nidavellir-transfer/payloads/poc.py")
+        assert member.isreg() and member.mode == 0o600
+        content = archive.extractfile(member).read()
+    assert content == b"print('proof')\n"
+
+    response = io.BytesIO()
+    with tarfile.open(fileobj=response, mode="w") as archive:
+        info = tarfile.TarInfo("poc.py")
+        info.size = len(content)
+        archive.addfile(info, io.BytesIO(content))
+    container.get_archive = lambda path: (
+        iter([response.getvalue()]), {"size": len(content), "linkTarget": ""}
+    )
+    assert provider.read_transfer_file(
+        "arena", "jump", "payloads/poc.py"
+    ) == content
+    with pytest.raises(ValueError, match="transfer root"):
+        provider.read_transfer_file("arena", "jump", "../secret")
 
 # --- fake docker client -------------------------------------------------------
 

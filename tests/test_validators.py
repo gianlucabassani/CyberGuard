@@ -35,13 +35,14 @@ def _echo_http(escape=False):
     return http_fn
 
 
-def test_reflected_xss_confirmed_when_unescaped():
+def test_reflected_xss_unescaped_is_unknown_without_execution_oracle():
     r = validators.validate_finding(
         {"cwe": "CWE-79", "path": "/search", "param": "q"},
         http_fn=_echo_http(escape=False), nonce="nvABCDEF",
     )
-    assert r.confirmed is True
+    assert r.confirmed is None
     assert r.method == validators.REFLECTED_XSS
+    assert "headless browser" in r.explanation
 
 
 def test_reflected_xss_refuted_when_escaped():
@@ -85,6 +86,33 @@ def test_headless_browser_confirms_execution():
     )
     assert r.confirmed is True
     assert "executed" in r.explanation
+
+
+def test_headless_browser_refutes_non_execution_even_when_reflected():
+    r = validators.validate_finding(
+        {"cwe": "CWE-79", "path": "/x", "param": "q"},
+        http_fn=_echo_http(escape=False),
+        browser_fn=lambda path, params, nonce: False,
+        nonce="nvABCDEF",
+    )
+    assert r.confirmed is False
+    assert "did not execute" in r.explanation
+
+
+def test_headless_browser_receives_platform_owned_marker_payload():
+    seen = {}
+
+    def browser(path, params, nonce):
+        seen.update(path=path, params=params, nonce=nonce)
+        return True
+
+    r = validators.validate_finding(
+        {"cwe": "CWE-79", "path": "/x", "param": "term", "payload": "ignored"},
+        browser_fn=browser, nonce="nvABCDEF",
+    )
+    assert r.confirmed is True
+    assert "data-nidavellir-xss" in seen["params"]["term"]
+    assert "nvABCDEF" in seen["params"]["term"]
 
 
 # --- marker (e.g. SQLi disclosing a planted secret) --------------------------

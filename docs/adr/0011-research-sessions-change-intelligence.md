@@ -67,6 +67,17 @@ through the Docker API into an arena-owned volume using a networkless helper, an
 creates a safe Git baseline. Bundle build/install activity remains inside the
 consent-gated target setup session.
 
+Source change evidence exports to an arena-scoped, content-addressed patch store.
+The patch body is bounded and excluded from events; events and findings retain a
+verified SHA-256 reference. Staged, unstaged and untracked groups are explicit.
+Untracked content is opened only by opt-in, only after the provider proves the
+path is a bounded regular file, and never by following a link.
+
+Attacker file transfer is a provider capability restricted to foothold nodes and
+the fixed `/opt/nidavellir-transfer` root. Uploads and regular-file downloads are
+bounded; downloads are chunked for MCP context, and both directions expose a
+whole-file SHA-256 while omitting bodies from traces and audit events.
+
 ## Consequences
 
 The first implementation supports Git-backed docker-local workspaces, immutable
@@ -76,5 +87,6 @@ research next requires immutable binary/installer intake,
 before/after filesystem manifests and a snapshot-capable local VM provider; it
 must not be simulated with a source diff.
 
-The UI and MCP now agree on what changed. Future patch export and finding
-attachments must build on this capability rather than creating alternate paths.
+The UI and MCP agree on what changed and on the exact exported patch identity.
+Binary targets still require before/after filesystem manifests rather than a
+source-diff approximation.

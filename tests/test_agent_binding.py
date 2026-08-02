@@ -7,6 +7,8 @@ Operators/admins manage every arena and bypass the check. Bindings are granted
 three ways: auto on agent self-deploy (own sandbox), an operator grant, or named
 at setup/start (configurator, revoked at finish).
 """
+import base64
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -78,6 +80,147 @@ def test_binding_is_per_arena(operator, agent):
     assert agent.post("/arenas/bind-B/exec", json={"node": "victim", "command": "id"}).status_code == 403
 
 
+def test_attacker_file_transfer_is_foothold_scoped_and_hashed(operator, agent):
+    outputs = {
+        "node_jump_name": "nv-jump",
+        "node_jump_ssh_command": "docker exec nv-jump sh",
+        "node_victim_name": "nv-victim",
+    }
+    _active_arena(operator.db, "bind-transfer", outputs)
+    operator.post(
+        "/arenas/bind-transfer/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+    content = b"payload-proof"
+    uploaded = agent.post(
+        "/arenas/bind-transfer/files/upload",
+        json={"path": "payloads/poc.bin", "content_b64": base64.b64encode(content).decode()},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()["node"] == "jump"
+    assert uploaded.json()["digest"].startswith("sha256:")
+
+    downloaded = agent.post(
+        "/arenas/bind-transfer/files/download",
+        json={"path": "payloads/poc.bin", "max_bytes": 5},
+    )
+    assert downloaded.status_code == 200, downloaded.text
+    assert base64.b64decode(downloaded.json()["content_b64"]) == content[:5]
+    assert downloaded.json()["next_offset"] == 5
+    assert downloaded.json()["digest"] == uploaded.json()["digest"]
+
+    assert agent.post(
+        "/arenas/bind-transfer/files/upload",
+        json={"path": "../escape", "content_b64": "eA=="},
+    ).status_code == 422
+    assert agent.post(
+        "/arenas/bind-transfer/files/download",
+        json={"path": "payloads/poc.bin", "node": "victim"},
+    ).status_code == 403
+
+
+def test_headless_browser_is_arena_target_scoped_and_body_free_in_audit(
+    operator, agent, monkeypatch
+):
+    import api
+
+    outputs = {
+        "node_jump_name": "nv-jump",
+        "node_jump_private_ip": "172.30.0.3",
+        "node_jump_ssh_command": "docker exec nv-jump sh",
+        "node_victim_name": "nv-victim",
+        "node_victim_private_ip": "172.30.0.2",
+        "node_victim_ports": {"80": "49000"},
+    }
+    _active_arena(operator.db, "bind-browser", outputs)
+    operator.post(
+        "/arenas/bind-browser/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+    seen = {}
+
+    def fake_browser(
+        _self, arena, node, ip, port, scheme, path, params, **options
+    ):
+        seen.update(
+            arena=arena, node=node, ip=ip, port=port, scheme=scheme,
+            path=path, params=params, options=options,
+        )
+        return {
+            "success": True, "url": "http://172.30.0.2/search?q=secret",
+            "title": "Victim", "rendered_dom": "<html>secret body</html>",
+            "dom_bytes": 24, "dom_sha256": "sha256:" + "c" * 64,
+            "truncated": False, "executed": None,
+        }
+
+    monkeypatch.setattr(api.Orchestrator, "browser_visit", fake_browser)
+    response = agent.post(
+        "/arenas/bind-browser/browser/visit",
+        json={"node": "victim", "path": "/search", "params": {"q": "secret"}},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["title"] == "Victim"
+    assert seen["ip"] == "172.30.0.2" and seen["port"] == 80
+    assert seen["scheme"] == "http" and seen["path"] == "/search"
+
+    event = operator.db.list_events("bind-browser", types=("browser_visit",))[0]
+    assert event["payload"]["param_names"] == ["q"]
+    assert "secret body" not in str(event["payload"])
+    assert agent.post(
+        "/arenas/bind-browser/browser/visit",
+        json={"node": "jump", "path": "/"},
+    ).status_code == 403
+    assert agent.post(
+        "/arenas/bind-browser/browser/visit",
+        json={"node": "victim", "path": "http://example.com/"},
+    ).status_code == 422
+
+
+def test_reported_xss_is_confirmed_only_by_browser_execution(operator, agent, monkeypatch):
+    import api
+
+    outputs = {
+        "node_jump_name": "nv-jump",
+        "node_jump_private_ip": "172.31.0.3",
+        "node_jump_ssh_command": "docker exec nv-jump sh",
+        "node_victim_name": "nv-victim",
+        "node_victim_private_ip": "172.31.0.2",
+        "node_victim_ports": {"80": "49001"},
+    }
+    _active_arena(operator.db, "bind-xss-browser", outputs)
+    operator.post(
+        "/arenas/bind-xss-browser/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+    probes = []
+
+    def fake_browser(
+        _self, arena, node, ip, port, scheme, path, params, **options
+    ):
+        probes.append({"params": params, **options})
+        return {
+            "success": True, "rendered_dom": "<html></html>", "dom_bytes": 13,
+            "dom_sha256": "sha256:" + "d" * 64,
+            "executed": bool(options.get("execution_marker")),
+        }
+
+    monkeypatch.setattr(api.Orchestrator, "browser_visit", fake_browser)
+    finding = agent.post(
+        "/arenas/bind-xss-browser/findings",
+        json={
+            "title": "reflected XSS", "cwe": "CWE-79", "node": "victim",
+            "path": "/search", "param": "q", "payload": "agent payload",
+        },
+    )
+    assert finding.status_code == 200, finding.text
+    event = operator.db.list_events("bind-xss-browser", types=("finding",))[0]
+    assert event["payload"]["validation"]["confirmed"] is True
+    assert event["payload"]["validation"]["method"] == "reflected_xss"
+    assert probes[0]["execution_marker"].startswith("nv")
+    assert "data-nidavellir-xss" in probes[0]["params"]["q"]
+    assert "agent payload" not in probes[0]["params"]["q"]
+
+
 def test_attacker_workspace_is_whitebox_only(operator, agent, monkeypatch):
     import api
 
@@ -115,6 +258,78 @@ def test_attacker_workspace_is_whitebox_only(operator, agent, monkeypatch):
     assert diff.status_code == 200, diff.text
     assert seen["node"] == "jump"
     assert seen["source_path"] == "/whitebox/victim"
+
+
+def test_workspace_patch_artifact_attaches_to_finding(operator, agent, monkeypatch):
+    import api
+    outputs = {
+        "node_jump_name": "nv-jump",
+        "node_jump_ssh_command": "docker exec nv-jump sh",
+        "node_victim_name": "nv-victim",
+        "node_victim_whitebox_source": "/whitebox/victim",
+        "node_victim_whitebox": True,
+    }
+    _active_arena(operator.db, "bind-evidence", outputs)
+    operator.post(
+        "/arenas/bind-evidence/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+
+    def fake_diff(_self, _arena, _node, _source_path, **options):
+        lines = ["diff --git a/app.py b/app.py", "-old", "+new"]
+        start = options["start_line"]
+        page = lines[start:start + 2]
+        end = start + len(page)
+        return {
+            "success": True,
+            "baseline": "a" * 40,
+            "changed_files": [{"path": "app.py", "index": " ", "worktree": "M"}],
+            "changed_file_count": 1,
+            "groups": {"staged": [], "unstaged": [{"path": "app.py"}], "untracked": []},
+            "diff": "\n".join(page),
+            "returned_lines": len(page),
+            "total_lines": len(lines),
+            "start_line": start,
+            "next_start_line": end if end < len(lines) else None,
+        }
+
+    monkeypatch.setattr(api.Orchestrator, "workspace_diff", fake_diff)
+    exported = agent.post(
+        "/arenas/bind-evidence/workspaces/victim/patch-artifacts",
+        json={"base": "HEAD"},
+    )
+    assert exported.status_code == 200, exported.text
+    body = exported.json()
+    digest = body["artifact"]["digest"]
+    assert body["patch"] == "diff --git a/app.py b/app.py\n-old\n+new\n"
+
+    download = agent.get(f"/arenas/bind-evidence/evidence-artifacts/{digest}")
+    assert download.status_code == 200 and download.content == body["patch"].encode()
+
+    finding = agent.post(
+        "/arenas/bind-evidence/findings",
+        json={"title": "changed auth", "evidence_artifact_digests": [digest]},
+    )
+    assert finding.status_code == 200, finding.text
+    event = operator.db.list_events("bind-evidence", types=("finding",), limit=1)[0]
+    assert event["payload"]["evidence_artifacts"][0]["digest"] == digest
+
+
+def test_workspace_patch_rejects_unselected_blackbox(operator, agent):
+    _active_arena(
+        operator.db,
+        "bind-evidence-blackbox",
+        {"node_victim_name": "nv-victim", "node_victim_sut_source": "/opt/sut"},
+    )
+    operator.post(
+        "/arenas/bind-evidence-blackbox/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+    response = agent.post(
+        "/arenas/bind-evidence-blackbox/workspaces/victim/patch-artifacts",
+        json={"base": "HEAD"},
+    )
+    assert response.status_code == 404
 
 
 def test_attacker_cannot_enumerate_blackbox_checkout(operator, agent):

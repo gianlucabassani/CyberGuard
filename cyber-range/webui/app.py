@@ -1162,6 +1162,54 @@ def arena_workspace_diff_proxy(instance_id, workspace_node):
     return jsonify(data), 200
 
 
+@app.route(
+    "/api/arenas/<instance_id>/workspaces/<workspace_node>/patch-artifacts",
+    methods=["POST"],
+)
+def arena_workspace_patch_proxy(instance_id, workspace_node):
+    """Create a content-addressed patch through the shared workspace primitive."""
+    body = request.get_json(silent=True) or {}
+    payload = {
+        "base": body.get("base") or "HEAD",
+        "path": body.get("path") or None,
+        "context_lines": body.get("context_lines", 3),
+        "include_untracked_paths": body.get("include_untracked_paths") or [],
+    }
+    data, code = _api_post(
+        f"/arenas/{instance_id}/workspaces/"
+        f"{requests.utils.quote(workspace_node, safe='')}/patch-artifacts",
+        payload,
+    )
+    return jsonify(data), code
+
+
+@app.route("/api/arenas/<instance_id>/evidence-artifacts/<digest>", methods=["GET"])
+def evidence_artifact_proxy(instance_id, digest):
+    """Stream a verified arena-scoped artifact without exposing the API key."""
+    try:
+        resp = requests.get(
+            f"{API_URL}/arenas/{instance_id}/evidence-artifacts/"
+            f"{requests.utils.quote(digest, safe=':')}",
+            headers=API_HEADERS,
+            timeout=10,
+        )
+    except requests.RequestException:
+        return jsonify({"error": "orchestrator unreachable"}), 502
+    if resp.status_code != 200:
+        return jsonify({"error": _api_error(resp)}), resp.status_code
+    return Response(
+        resp.content,
+        status=200,
+        content_type=resp.headers.get("Content-Type", "text/x-diff"),
+        headers={
+            "Content-Disposition": resp.headers.get(
+                "Content-Disposition", "attachment; filename=evidence.patch"
+            ),
+            "ETag": resp.headers.get("ETag", ""),
+        },
+    )
+
+
 @app.route("/api/arenas/<instance_id>/bindings", methods=["GET"])
 def list_bindings_proxy(instance_id):
     """Active agent↔arena bindings (D1) for the operator console."""
@@ -1208,6 +1256,7 @@ def manual_finding_proxy(instance_id):
         "node": (body.get("node") or "").strip() or None,
         "evidence": (body.get("evidence") or "").strip() or None,
         "poc": (body.get("poc") or "").strip() or None,
+        "evidence_artifact_digests": body.get("evidence_artifact_digests") or [],
     }
     data, code = _api_post(f"/arenas/{instance_id}/findings/manual", payload)
     return jsonify(data), code

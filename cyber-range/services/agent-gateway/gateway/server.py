@@ -149,6 +149,20 @@ def build_server(cfg: GatewayConfig | None = None, context: GatewayContext | Non
             )
 
         @mcp.tool()
+        def workspace_patch_artifact(
+            arena_id: str, node: str, base: str = "HEAD",
+            path: str | None = None, context_lines: int = 3,
+            include_untracked_paths: list[str] | None = None,
+        ) -> dict:
+            """Export a SHA-256 patch artifact. Untracked content is included
+            only for explicitly selected regular UTF-8 files."""
+            return tools.workspace_patch_artifact(
+                ctx(), arena_id=arena_id, node=node, base=base, path=path,
+                context_lines=context_lines,
+                include_untracked_paths=include_untracked_paths,
+            )
+
+        @mcp.tool()
         def run_command(arena_id: str, command: str, node: str | None = None,
                         timeout: int = 30) -> dict:
             """Run a shell command from the arena foothold; returns its output."""
@@ -157,11 +171,47 @@ def build_server(cfg: GatewayConfig | None = None, context: GatewayContext | Non
             )
 
         @mcp.tool()
+        def browser_visit(
+            arena_id: str, node: str, path: str = "/",
+            params: dict[str, str] | None = None, wait_ms: int = 1500,
+        ) -> dict:
+            """Render a page with JavaScript on an arena target. Supply a node
+            and relative path/query params; arbitrary URLs are not accepted."""
+            return tools.browser_visit(
+                ctx(), arena_id=arena_id, node=node, path=path,
+                params=params, wait_ms=wait_ms,
+            )
+
+        @mcp.tool()
+        def upload_file(
+            arena_id: str, path: str, content_b64: str, node: str | None = None
+        ) -> dict:
+            """Upload a bounded base64 payload below the foothold's fixed
+            /opt/nidavellir-transfer root. `path` must be relative."""
+            return tools.upload_file(
+                ctx(), arena_id=arena_id, path=path,
+                content_b64=content_b64, node=node,
+            )
+
+        @mcp.tool()
+        def download_file(
+            arena_id: str, path: str, node: str | None = None,
+            offset: int = 0, max_bytes: int = 262144,
+        ) -> dict:
+            """Download a regular foothold file chunk as base64. Follow
+            next_offset until null; verify the returned whole-file SHA-256."""
+            return tools.download_file(
+                ctx(), arena_id=arena_id, path=path, node=node,
+                offset=offset, max_bytes=max_bytes,
+            )
+
+        @mcp.tool()
         def report_finding(arena_id: str, title: str, cwe: str | None = None,
                            node: str | None = None, evidence: str | None = None,
                            path: str | None = None, param: str | None = None,
                            payload: str | None = None, oast_token: str | None = None,
-                           poc: str | None = None) -> dict:
+                           poc: str | None = None,
+                           evidence_artifact_digests: list[str] | None = None) -> dict:
             """Report a discovered vulnerability (the engagement goal). Include the
             `cwe` (e.g. 'CWE-89') and `node` so it can be scored. To have the finding
             PROVEN (not just claimed), also pass the verification inputs: `path` +
@@ -173,6 +223,7 @@ def build_server(cfg: GatewayConfig | None = None, context: GatewayContext | Non
                 ctx(), arena_id=arena_id, title=title, cwe=cwe, node=node,
                 evidence=evidence, path=path, param=param, payload=payload,
                 oast_token=oast_token, poc=poc,
+                evidence_artifact_digests=evidence_artifact_digests,
             )
 
     elif stance is Stance.defender:
@@ -221,6 +272,19 @@ def build_server(cfg: GatewayConfig | None = None, context: GatewayContext | Non
                 ctx(), arena_id=arena_id, node=node, base=base, path=path,
                 context_lines=context_lines, start_line=start_line,
                 max_lines=max_lines,
+            )
+
+        @mcp.tool()
+        def workspace_patch_artifact(
+            arena_id: str, node: str, base: str = "HEAD",
+            path: str | None = None, context_lines: int = 3,
+            include_untracked_paths: list[str] | None = None,
+        ) -> dict:
+            """Export a SHA-256 setup-workspace patch artifact."""
+            return tools.workspace_patch_artifact(
+                ctx(), arena_id=arena_id, node=node, base=base, path=path,
+                context_lines=context_lines,
+                include_untracked_paths=include_untracked_paths,
             )
 
         @mcp.tool()

@@ -46,7 +46,8 @@ a thin wrapper.
 (`list_scenarios`, `deploy_arena`, `arena_status`, `get_briefing`,
 `destroy_arena`) are available to every session; **per-stance execution**
 toolsets are gated by an allow-list (`stances.allowed_tools`):
-- **attacker** — `run_command` (docker exec / SSH on the foothold), `upload/
+- **attacker** — `run_command` (docker exec / SSH on the foothold), `browser_visit`
+  (arena-target-only disposable Chromium, also the XSS execution oracle), `upload/
   download_file`, `report_finding` (self-report a discovered known vuln, matched
   against the hidden manifest by CWE + node — the 2026-06-16 manifest model that
   replaced `submit_flag`);

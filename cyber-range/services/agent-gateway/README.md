@@ -32,6 +32,8 @@ gateway is the integration surface (scope boundary in `VISION.md`).
 | `get_topology(arena_id)` | `GET /status` | nodes (IP/URL/state) + networks; marks the foothold |
 | `list_targets(arena_id)` | `GET /status` | in-scope targets (non-foothold nodes) + how to reach them |
 | `run_command(arena_id, command, node?, timeout?)` | `POST /arenas/{id}/exec` | shell on the **foothold only**; budget-charged; audited + traced |
+| `browser_visit(arena_id, node, path?, params?, wait_ms?)` | `POST /arenas/{id}/browser/visit` | bounded JavaScript rendering on an arena target; no arbitrary URLs; budget-charged |
+| `upload_file` / `download_file` | `POST /arenas/{id}/files/*` | bounded foothold transfer under a fixed root; chunked + hashed |
 | `report_finding(arena_id, title, cwe?, node?, evidence?)` | `POST /arenas/{id}/findings` | report a discovered vulnerability; scored by CWE+node vs the hidden manifest; neutral ack (no oracle) |
 
 **Defender stance** (`NIDAVELLIR_STANCE=defender`):
@@ -49,7 +51,9 @@ gateway is the integration surface (scope boundary in `VISION.md`).
 | `propose_setup_step(arena_id, node, command, rationale?)` | `POST .../setup/propose` | **HITL**: propose a step → operator must approve before it runs |
 | `await_setup_step(arena_id, step_id)` | `GET .../setup/proposals/{id}` | poll a proposal: pending \| approved (+result) \| rejected |
 | `run_setup_step(arena_id, node, command, timeout?)` | `POST .../setup/run` | **autonomous** only — double-locked (platform flag + `mode=autonomous`) |
-| `upload_file(arena_id, node, path, content_b64)` | `POST .../setup/upload` | write a config/seed/patch file on the victim (gated exec) |
+| `upload_file(arena_id, node, path, content_b64)` | `POST .../setup/upload` | configurator: write a config/seed/patch file on the victim (gated exec) |
+| `upload_file(arena_id, path, content_b64, node?)` | `POST .../files/upload` | attacker: place a bounded payload below the foothold transfer root |
+| `download_file(arena_id, path, node?, offset?, max_bytes?)` | `POST .../files/download` | attacker: retrieve a bounded regular-file chunk with whole-file SHA-256 |
 | `finish_setup(arena_id)` | `POST .../setup/finish` | revoke the configurator capability + setup egress before the engagement |
 
 The MITM toolset is the next increment (see the resume plan in `.agent/STATE.md`).

@@ -2,12 +2,15 @@
 FastAPI REST Layer - Production Architecture (Redis/Celery)
 """
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 import logging
+import base64
+import difflib
+import hashlib
 import json
 import os
 import re
@@ -18,6 +21,7 @@ import sys
 import urllib.parse
 import yaml
 from datetime import datetime, timedelta
+from pathlib import PurePosixPath
 
 import requests
 
@@ -26,6 +30,7 @@ import build_planner
 import catalog
 import config
 import dockerfile_synth
+import evidence_artifact
 import eval_export
 import generator
 import image_check
@@ -1684,6 +1689,249 @@ class ExecRequest(BaseModel):
     timeout: int = Field(default=30, ge=1, le=120)
 
 
+class TransferUploadRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=512)
+    content_b64: str = Field(
+        min_length=0,
+        max_length=((config.TRANSFER_MAX_FILE_BYTES + 2) // 3 * 4) + 8,
+    )
+    node: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class TransferDownloadRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=512)
+    node: str | None = Field(default=None, min_length=1, max_length=64)
+    offset: int = Field(default=0, ge=0)
+    max_bytes: int = Field(
+        default=config.TRANSFER_CHUNK_BYTES,
+        ge=1,
+        le=config.TRANSFER_CHUNK_BYTES,
+    )
+
+
+class BrowserVisitRequest(BaseModel):
+    node: str = Field(min_length=1, max_length=64)
+    path: str = Field(default="/", min_length=1, max_length=2048)
+    params: dict[str, str] = Field(default_factory=dict)
+    wait_ms: int = Field(default=1500, ge=0, le=5000)
+
+    @model_validator(mode="after")
+    def _bounded_target(self):
+        parsed = urllib.parse.urlsplit(self.path)
+        if (
+            not self.path.startswith("/")
+            or self.path.startswith("//")
+            or parsed.scheme
+            or parsed.netloc
+            or parsed.fragment
+            or "\x00" in self.path
+        ):
+            raise ValueError("path must be an arena-relative URL path without a fragment")
+        if parsed.query:
+            raise ValueError("put query values in params, not path")
+        if len(self.params) > 32:
+            raise ValueError("params may contain at most 32 entries")
+        for key, value in self.params.items():
+            if not key or len(key) > 128 or len(value) > 4096:
+                raise ValueError("browser parameter names/values exceed configured bounds")
+        return self
+
+
+def _transfer_foothold(record: dict, requested: str | None) -> str:
+    outputs = record.get("outputs") or {}
+    if isinstance(outputs, str):
+        try:
+            outputs = json.loads(outputs)
+        except json.JSONDecodeError:
+            outputs = {}
+    _, footholds = setup_phase.derive_nodes_footholds(outputs)
+    if not footholds:
+        raise HTTPException(status_code=422, detail="arena has no file-transfer foothold")
+    if requested is None:
+        if len(footholds) != 1:
+            raise HTTPException(
+                status_code=422,
+                detail=f"arena has multiple footholds; choose one of {sorted(footholds)}",
+            )
+        return next(iter(footholds))
+    if requested not in footholds:
+        raise HTTPException(
+            status_code=403,
+            detail=f"file transfer is foothold-only; choose one of {sorted(footholds)}",
+        )
+    return requested
+
+
+def _transfer_path(raw: str) -> str:
+    if "\x00" in raw:
+        raise HTTPException(status_code=422, detail="invalid transfer path")
+    path = PurePosixPath(raw)
+    if (
+        path.is_absolute()
+        or any(part in ("", ".", "..") for part in path.parts)
+        or len(path.parts) > 16
+        or len(str(path).encode("utf-8")) > 512
+    ):
+        raise HTTPException(
+            status_code=422, detail="transfer path must stay below the transfer root"
+        )
+    return str(path)
+
+
+def _browser_target(record: dict, node: str) -> tuple[str, int, str]:
+    outputs = record.get("outputs") or {}
+    if isinstance(outputs, str):
+        try:
+            outputs = json.loads(outputs)
+        except json.JSONDecodeError:
+            outputs = {}
+    known = {
+        key[len("node_"):-len("_name")]
+        for key in outputs
+        if key.startswith("node_") and key.endswith("_name")
+    }
+    if node not in known:
+        raise HTTPException(status_code=404, detail=f"Unknown target node '{node}'")
+    _, footholds = setup_phase.derive_nodes_footholds(outputs)
+    if node in footholds:
+        raise HTTPException(status_code=403, detail="headless browser targets must not be footholds")
+    target = _victim_internal_target(outputs, node)
+    if target is None:
+        raise HTTPException(status_code=422, detail="target has no browser-capable web port")
+    ip, port = target
+    scheme = "https" if port in (443, 8443) else "http"
+    return ip, port, scheme
+
+
+def _run_arena_browser(
+    record: dict, node: str, path: str, params: dict[str, str] | None,
+    *, wait_ms: int = 1500, execution_marker: str | None = None,
+) -> dict:
+    ip, port, scheme = _browser_target(record, node)
+    orch = Orchestrator(provider_name=record.get("provider"))
+    return orch.browser_visit(
+        record["id"], node, ip, port, scheme, path, params,
+        wait_ms=wait_ms, execution_marker=execution_marker,
+    )
+
+
+@app.post("/arenas/{instance_id}/browser/visit")
+@limiter.limit(RATE_LIMIT_EXEC)
+def browser_visit(
+    request: Request,
+    instance_id: str,
+    req: BrowserVisitRequest,
+    principal: Principal = Depends(require_principal),
+):
+    """Render one arena target page; arbitrary/external URLs are never accepted."""
+    record = _active_arena_or_error(instance_id)
+    _require_binding(principal, instance_id, bindings.CAP_EXEC)
+    try:
+        result = _run_arena_browser(
+            record, req.node, req.path, req.params, wait_ms=req.wait_ms
+        )
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=result.get("error", "browser failed"))
+    db.record_event(
+        instance_id,
+        "browser_visit",
+        {
+            "node": req.node,
+            "path": req.path,
+            "param_names": sorted(req.params),
+            "wait_ms": req.wait_ms,
+            "dom_bytes": result.get("dom_bytes"),
+            "dom_sha256": result.get("dom_sha256"),
+        },
+        actor=principal.name,
+    )
+    return {"node": req.node, **result}
+
+
+@app.post("/arenas/{instance_id}/files/upload")
+@limiter.limit(RATE_LIMIT_EXEC)
+def upload_arena_file(
+    request: Request,
+    instance_id: str,
+    req: TransferUploadRequest,
+    principal: Principal = Depends(require_principal),
+):
+    """Upload one bounded file below the foothold's fixed transfer root."""
+    record = _active_arena_or_error(instance_id)
+    _require_binding(principal, instance_id, bindings.CAP_EXEC)
+    node = _transfer_foothold(record, req.node)
+    path = _transfer_path(req.path)
+    try:
+        content = base64.b64decode(req.content_b64, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail="content_b64 is not valid base64") from exc
+    if len(content) > config.TRANSFER_MAX_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="transfer file exceeds configured limit")
+    orch = Orchestrator(provider_name=record.get("provider"))
+    try:
+        result = orch.write_transfer_file(instance_id, node, path, content)
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    if not result.get("success"):
+        raise HTTPException(status_code=422, detail=result.get("error", "upload failed"))
+    digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
+    db.record_event(
+        instance_id,
+        "file_upload",
+        {"node": node, "path": path, "bytes": len(content), "digest": digest},
+        actor=principal.name,
+    )
+    return {"uploaded": True, "node": node, "digest": digest, **result}
+
+
+@app.post("/arenas/{instance_id}/files/download")
+@limiter.limit(RATE_LIMIT_EXEC)
+def download_arena_file(
+    request: Request,
+    instance_id: str,
+    req: TransferDownloadRequest,
+    principal: Principal = Depends(require_principal),
+):
+    """Download one bounded regular foothold file in context-safe chunks."""
+    record = _active_arena_or_error(instance_id)
+    _require_binding(principal, instance_id, bindings.CAP_EXEC)
+    node = _transfer_foothold(record, req.node)
+    path = _transfer_path(req.path)
+    orch = Orchestrator(provider_name=record.get("provider"))
+    try:
+        content = orch.read_transfer_file(instance_id, node, path)
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if req.offset > len(content):
+        raise HTTPException(status_code=416, detail="download offset is past end of file")
+    end = min(len(content), req.offset + req.max_bytes)
+    chunk = content[req.offset:end]
+    digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
+    db.record_event(
+        instance_id,
+        "file_download",
+        {
+            "node": node, "path": path, "offset": req.offset,
+            "returned_bytes": len(chunk), "file_bytes": len(content), "digest": digest,
+        },
+        actor=principal.name,
+    )
+    return {
+        "node": node,
+        "path": path,
+        "content_b64": base64.b64encode(chunk).decode("ascii"),
+        "offset": req.offset,
+        "returned_bytes": len(chunk),
+        "file_bytes": len(content),
+        "next_offset": end if end < len(content) else None,
+        "digest": digest,
+    }
+
+
 @app.post("/arenas/{instance_id}/exec")
 @limiter.limit(RATE_LIMIT_EXEC)
 def exec_in_arena(
@@ -2420,6 +2668,20 @@ def _workspace_public_view(workspace: dict) -> dict:
     }
 
 
+def _authorized_workspace(
+    record: dict, principal: Principal, binding: dict | None, workspace_node: str
+) -> dict:
+    visible = {
+        item["node"]: item
+        for item in _accessible_workspaces(record, principal, binding)
+    }
+    workspace = visible.get(workspace_node)
+    if workspace is None:
+        # Do not reveal whether the node has hidden black-box source.
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return workspace
+
+
 @app.get("/arenas/{instance_id}/workspaces")
 def list_arena_workspaces(
     instance_id: str,
@@ -2500,14 +2762,7 @@ def get_arena_workspace_diff(
             status_code=409, detail=f"Arena is '{record.get('status')}', not active"
         )
     binding = _require_binding(principal, instance_id, bindings.CAP_WORKSPACE)
-    visible = {
-        item["node"]: item
-        for item in _accessible_workspaces(record, principal, binding)
-    }
-    workspace = visible.get(workspace_node)
-    if workspace is None:
-        # Do not reveal whether the node has hidden black-box source.
-        raise HTTPException(status_code=404, detail="Workspace not found")
+    workspace = _authorized_workspace(record, principal, binding, workspace_node)
 
     orch = Orchestrator(provider_name=record.get("provider"))
     try:
@@ -2546,6 +2801,170 @@ def get_arena_workspace_diff(
     )
     result["workspace"] = _workspace_public_view(workspace)
     return result
+
+
+class WorkspacePatchRequest(BaseModel):
+    base: str = Field(default="HEAD", min_length=4, max_length=80)
+    path: str | None = Field(default=None, max_length=512)
+    context_lines: int = Field(default=3, ge=0, le=20)
+    include_untracked_paths: list[str] = Field(default_factory=list, max_length=10)
+
+
+def _untracked_patch(path: str, content: bytes) -> str:
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"untracked file {path!r} is binary; use filesystem-manifest "
+                "evidence when binary target support lands"
+            ),
+        ) from exc
+    body = "".join(
+        difflib.unified_diff(
+            [], text.splitlines(keepends=True), fromfile="/dev/null", tofile=f"b/{path}"
+        )
+    )
+    return f"diff --git a/{path} b/{path}\nnew file mode 100644\n{body}"
+
+
+def _complete_workspace_diff(
+    orch: Orchestrator, instance_id: str, workspace: dict, req: WorkspacePatchRequest
+) -> tuple[dict, str]:
+    """Collect every bounded provider page into one capped canonical patch."""
+    chunks: list[str] = []
+    start = 0
+    first = None
+    total_bytes = 0
+    while True:
+        result = orch.workspace_diff(
+            instance_id,
+            workspace["exec_node"],
+            workspace["source_path"],
+            base=req.base,
+            path=req.path,
+            context_lines=req.context_lines,
+            start_line=start,
+            max_lines=500,
+        )
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"workspace export failed: {result.get('error', 'unknown error')}",
+            )
+        first = first or result
+        page = result.get("diff") or ""
+        if page:
+            chunks.append(page)
+            total_bytes += len(page.encode("utf-8")) + 1
+        if total_bytes > config.EVIDENCE_ARTIFACT_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="workspace patch exceeds artifact limit")
+        next_start = result.get("next_start_line")
+        if next_start is None:
+            break
+        if not isinstance(next_start, int) or next_start <= start:
+            raise HTTPException(status_code=422, detail="provider returned invalid diff pagination")
+        start = next_start
+    return first or {}, "\n".join(chunks) + ("\n" if chunks else "")
+
+
+@app.post("/arenas/{instance_id}/workspaces/{workspace_node}/patch-artifacts")
+def export_workspace_patch(
+    instance_id: str,
+    workspace_node: str,
+    req: WorkspacePatchRequest,
+    principal: Principal = Depends(require_principal),
+):
+    """Export the exact bounded change view as an arena-scoped SHA-256 artifact."""
+    record = db.get_deployment(instance_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Arena not found")
+    if record.get("status") != "active":
+        raise HTTPException(
+            status_code=409, detail=f"Arena is '{record.get('status')}', not active"
+        )
+    binding = _require_binding(principal, instance_id, bindings.CAP_WORKSPACE)
+    workspace = _authorized_workspace(record, principal, binding, workspace_node)
+    orch = Orchestrator(provider_name=record.get("provider"))
+    try:
+        summary, patch = _complete_workspace_diff(orch, instance_id, workspace, req)
+        included_untracked = []
+        for selected in req.include_untracked_paths:
+            content = orch.workspace_untracked_file(
+                instance_id, workspace["exec_node"], workspace["source_path"], selected
+            )
+            rendered = _untracked_patch(selected, content)
+            patch += ("\n" if patch and not patch.endswith("\n\n") else "") + rendered
+            included_untracked.append({"path": selected, "bytes": len(content)})
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        metadata = evidence_artifact.store_patch(
+            instance_id,
+            patch.encode("utf-8"),
+            {
+                "node": workspace_node,
+                "base": req.base,
+                "baseline": summary.get("baseline"),
+                "path": req.path,
+                "context_lines": req.context_lines,
+                "changed_file_count": summary.get("changed_file_count", 0),
+                "groups": summary.get("groups", {}),
+                "included_untracked": included_untracked,
+            },
+        )
+    except evidence_artifact.EvidenceArtifactError as exc:
+        status = 413 if "limit" in str(exc) or "capacity" in str(exc) else 422
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    db.record_event(
+        instance_id,
+        "evidence_artifact",
+        {
+            "digest": metadata["digest"],
+            "kind": metadata["kind"],
+            "node": workspace_node,
+            "bytes": metadata["bytes"],
+            "changed_file_count": metadata["changed_file_count"],
+        },
+        actor=principal.name,
+    )
+    return {
+        "artifact": metadata,
+        "patch": patch,
+        "download_path": (
+            f"/arenas/{instance_id}/evidence-artifacts/{metadata['digest']}"
+        ),
+    }
+
+
+@app.get("/arenas/{instance_id}/evidence-artifacts/{digest}")
+def download_evidence_artifact(
+    instance_id: str,
+    digest: str,
+    principal: Principal = Depends(require_principal),
+):
+    """Download a verified evidence body after re-checking arena/workspace scope."""
+    record = db.get_deployment(instance_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Arena not found")
+    binding = _require_binding(principal, instance_id, bindings.CAP_WORKSPACE)
+    try:
+        metadata, content = evidence_artifact.get(instance_id, digest)
+    except evidence_artifact.EvidenceArtifactError as exc:
+        raise HTTPException(status_code=404, detail="Evidence artifact not found") from exc
+    _authorized_workspace(record, principal, binding, metadata.get("node", ""))
+    filename = f"{metadata.get('node', 'workspace')}-{digest[-12:]}.patch"
+    return Response(
+        content=content,
+        media_type="text/x-diff",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "ETag": f'"{digest}"',
+        },
+    )
 
 
 class SetupStartRequest(BaseModel):
@@ -3370,6 +3789,22 @@ def _arena_http_fn(record: dict, node: str):
     return http_fn
 
 
+def _arena_browser_fn(record: dict, node: str):
+    """A browser execution oracle bound to one arena node (no caller URL)."""
+    # Resolve scope now so a missing/invalid target cleanly disables the probe.
+    _browser_target(record, node)
+
+    def browser_fn(path: str, params: dict | None, nonce: str) -> bool:
+        result = _run_arena_browser(
+            record, node, path, params, wait_ms=2000, execution_marker=nonce
+        )
+        if not result.get("success"):
+            raise RuntimeError(result.get("error", "headless browser failed"))
+        return result.get("executed") is True
+
+    return browser_fn
+
+
 def _validate_finding(record: dict, req: "FindingRequest", vuln: dict | None) -> dict | None:
     """Deterministically confirm a reported finding against the arena (ADR-0009
     item 6), best-effort. Returns the validation dict to store on the finding
@@ -3383,14 +3818,23 @@ def _validate_finding(record: dict, req: "FindingRequest", vuln: dict | None) ->
     if method == validators.NONE:
         return None
     http_fn = None
+    browser_fn = None
     if req.node and req.path:
         try:
             http_fn = _arena_http_fn(record, req.node)
         except Exception:  # noqa: BLE001 - probe wiring must never fail the report
             logger.exception(f"[{record.get('id')}] validation probe wiring failed")
             http_fn = None
+        if method == validators.REFLECTED_XSS:
+            try:
+                browser_fn = _arena_browser_fn(record, req.node)
+            except Exception:  # noqa: BLE001 - an unavailable browser leaves unknown
+                logger.exception(f"[{record.get('id')}] browser probe wiring failed")
+                browser_fn = None
     try:
-        result = validators.validate_finding(finding, vuln=vuln, http_fn=http_fn)
+        result = validators.validate_finding(
+            finding, vuln=vuln, http_fn=http_fn, browser_fn=browser_fn
+        )
     except Exception:  # noqa: BLE001
         logger.exception(f"[{record.get('id')}] finding validation errored")
         return None
@@ -3432,6 +3876,7 @@ class FindingRequest(BaseModel):
     param: str | None = Field(default=None, max_length=128)
     payload: str | None = Field(default=None, max_length=2048)
     oast_token: str | None = Field(default=None, max_length=128)
+    evidence_artifact_digests: list[str] = Field(default_factory=list, max_length=10)
 
 
 @app.post("/arenas/{instance_id}/findings")
@@ -3476,6 +3921,19 @@ def _record_finding(instance_id, record, req: "FindingRequest", *, actor: str,
     matched_vuln = next((v for v in manifest if v["id"] == matched_id), None)
     validation = _validate_finding(record, req, matched_vuln)
 
+    artifact_refs = []
+    for digest in req.evidence_artifact_digests:
+        try:
+            metadata, _ = evidence_artifact.get(instance_id, digest)
+        except evidence_artifact.EvidenceArtifactError as exc:
+            raise HTTPException(
+                status_code=422, detail=f"invalid evidence artifact {digest!r}"
+            ) from exc
+        artifact_refs.append({
+            key: metadata.get(key)
+            for key in ("digest", "kind", "media_type", "bytes", "node", "path")
+        })
+
     finding_id = uuid.uuid4().hex[:12]
     db.record_event(
         instance_id, "finding",
@@ -3488,6 +3946,7 @@ def _record_finding(instance_id, record, req: "FindingRequest", *, actor: str,
             # Reproducible PoC (agent- or operator-authored) a human runs to
             # verify — agent-visible, surfaced next to the confirm/refute controls.
             "poc": (req.poc or "")[:8192] or None,
+            "evidence_artifacts": artifact_refs,
             # Ground-truth match + verification — operator-only (attacker stance
             # can't read events); surfaced via /score and the defender stance.
             "matched_vuln_id": matched_id,

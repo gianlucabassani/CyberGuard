@@ -580,6 +580,55 @@ def test_preflight_proxy_returns_target_readiness(client, monkeypatch):
     assert response.get_json()["ready"] is True
 
 
+def test_workspace_patch_proxy_relays_evidence_options(client, monkeypatch):
+    import app as webui_module
+
+    captured = {}
+
+    def fake_post(path, payload):
+        captured.update(path=path, payload=payload)
+        return {"artifact": {"digest": "sha256:" + "a" * 64}}, 200
+
+    monkeypatch.setattr(webui_module, "_api_post", fake_post)
+    _login(client)
+    token = _csrf_token(client, "/")
+    response = client.post(
+        "/api/arenas/a1/workspaces/victim/patch-artifacts",
+        json={
+            "base": "HEAD",
+            "path": "notes.txt",
+            "include_untracked_paths": ["notes.txt"],
+        },
+        headers={"X-CSRFToken": token},
+    )
+
+    assert response.status_code == 200
+    assert captured["path"].endswith("/workspaces/victim/patch-artifacts")
+    assert captured["payload"]["include_untracked_paths"] == ["notes.txt"]
+
+
+def test_manual_finding_proxy_relays_evidence_digest(client, monkeypatch):
+    import app as webui_module
+
+    captured = {}
+    monkeypatch.setattr(
+        webui_module,
+        "_api_post",
+        lambda path, payload: (captured.update(path=path, payload=payload) or {}, 200),
+    )
+    _login(client)
+    token = _csrf_token(client, "/")
+    digest = "sha256:" + "b" * 64
+    response = client.post(
+        "/api/arenas/a1/findings/manual",
+        json={"title": "finding", "evidence_artifact_digests": [digest]},
+        headers={"X-CSRFToken": token},
+    )
+
+    assert response.status_code == 200
+    assert captured["payload"]["evidence_artifact_digests"] == [digest]
+
+
 def test_sut_preview_proxy_relays_unreachable_backend(client):
     _login(client)
     token = _csrf_token(client, "/")

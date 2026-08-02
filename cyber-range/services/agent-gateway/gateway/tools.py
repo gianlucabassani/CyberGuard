@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from gateway import trace
 from gateway.rest_client import RestClient
 from gateway.session import Session
+from gateway.stances import Stance
 
 logger = logging.getLogger(__name__)
 
@@ -311,6 +312,41 @@ def workspace_diff(
     return result
 
 
+def workspace_patch_artifact(
+    ctx: GatewayContext,
+    arena_id: str,
+    node: str,
+    *,
+    base: str = "HEAD",
+    path: str | None = None,
+    context_lines: int = 3,
+    include_untracked_paths: list[str] | None = None,
+) -> dict:
+    """Create a hashed patch artifact from a stance-authorized workspace."""
+    _guard(ctx, "workspace_patch_artifact")
+    args = {
+        "node": node, "base": base, "path": path,
+        "context_lines": context_lines,
+        "include_untracked_paths": include_untracked_paths or [],
+    }
+    try:
+        result = ctx.client.workspace_patch_artifact(
+            ctx.session.api_key, arena_id, node, base=base, path=path,
+            context_lines=context_lines,
+            include_untracked_paths=include_untracked_paths,
+        )
+    except Exception:
+        _trace(ctx, "workspace_patch_artifact", args, ok=False, arena_id=arena_id)
+        raise
+    artifact = (result or {}).get("artifact") or {}
+    _trace(
+        ctx, "workspace_patch_artifact",
+        {"node": node, "digest": artifact.get("digest"), "bytes": artifact.get("bytes")},
+        ok=True, arena_id=arena_id,
+    )
+    return result
+
+
 # --- attacker stance ---------------------------------------------------------
 
 
@@ -388,6 +424,37 @@ def run_command(
     return res
 
 
+def browser_visit(
+    ctx: GatewayContext,
+    arena_id: str,
+    node: str,
+    path: str = "/",
+    params: dict[str, str] | None = None,
+    wait_ms: int = 1500,
+) -> dict:
+    """Render JavaScript on one in-scope arena target (never an arbitrary URL)."""
+    _guard(ctx, "browser_visit")
+    _check_budget(ctx)
+    args = {
+        "node": node, "path": path, "param_names": sorted((params or {}).keys()),
+        "wait_ms": wait_ms,
+    }
+    try:
+        result = ctx.client.browser_visit(
+            ctx.session.api_key, arena_id, node, path, params, wait_ms
+        )
+    except Exception:
+        _trace(ctx, "browser_visit", args, ok=False, arena_id=arena_id)
+        raise
+    ctx.steps_used += 1
+    _trace(
+        ctx, "browser_visit",
+        {**args, "dom_sha256": (result or {}).get("dom_sha256")},
+        ok=True, arena_id=arena_id,
+    )
+    return result
+
+
 def report_finding(
     ctx: GatewayContext,
     arena_id: str,
@@ -400,6 +467,7 @@ def report_finding(
     payload: str | None = None,
     oast_token: str | None = None,
     poc: str | None = None,
+    evidence_artifact_digests: list[str] | None = None,
 ) -> dict:
     """Report a discovered vulnerability. The engagement goal is to DISCOVER the
     arena's known weaknesses; this records your finding for scoring. Pass the
@@ -419,6 +487,7 @@ def report_finding(
         res = ctx.client.report_finding(
             ctx.session.api_key, arena_id, title, cwe=cwe, node=node, evidence=evidence,
             path=path, param=param, payload=payload, oast_token=oast_token, poc=poc,
+            evidence_artifact_digests=evidence_artifact_digests,
         )
     except Exception:
         _trace(ctx, "report_finding", trace_args, ok=False, arena_id=arena_id)
@@ -528,20 +597,60 @@ def run_setup_step(ctx: GatewayContext, arena_id: str, node: str, command: str,
     return res
 
 
-def upload_file(ctx: GatewayContext, arena_id: str, node: str, path: str,
+def upload_file(ctx: GatewayContext, arena_id: str, node: str | None, path: str,
                 content_b64: str) -> dict:
-    """Write a file (base64) onto the victim node during setup — a config/seed/
-    patch file. Victim-scoped + budgeted + audited like any setup step."""
+    """Upload a bounded base64 file.
+
+    Attackers write below the foothold's fixed transfer root. Configurators keep
+    the setup-specific victim upload path, which is separately budgeted.
+    """
     _guard(ctx, "upload_file")
     _check_budget(ctx)
     try:
-        res = ctx.client.setup_upload(ctx.session.api_key, arena_id, node, path, content_b64)
+        if ctx.session.stance is Stance.configurator:
+            if not node:
+                raise ValueError("configurator upload requires a victim node")
+            res = ctx.client.setup_upload(
+                ctx.session.api_key, arena_id, node, path, content_b64
+            )
+        else:
+            res = ctx.client.transfer_upload(
+                ctx.session.api_key, arena_id, path, content_b64, node=node
+            )
     except Exception:
         _trace(ctx, "upload_file", {"node": node, "path": path}, ok=False, arena_id=arena_id)
         raise
     ctx.steps_used += 1  # consume budget only on a successful write
     _trace(ctx, "upload_file",
            {"node": node, "path": path, "bytes": res.get("bytes")}, ok=True, arena_id=arena_id)
+    return res
+
+
+def download_file(
+    ctx: GatewayContext, arena_id: str, path: str, node: str | None = None,
+    offset: int = 0, max_bytes: int = 262144,
+) -> dict:
+    """Download one bounded foothold file chunk as base64 with an exact digest."""
+    _guard(ctx, "download_file")
+    try:
+        res = ctx.client.transfer_download(
+            ctx.session.api_key, arena_id, path, node=node,
+            offset=offset, max_bytes=max_bytes,
+        )
+    except Exception:
+        _trace(
+            ctx, "download_file", {"node": node, "path": path, "offset": offset},
+            ok=False, arena_id=arena_id,
+        )
+        raise
+    _trace(
+        ctx, "download_file",
+        {
+            "node": res.get("node"), "path": path, "offset": offset,
+            "returned_bytes": res.get("returned_bytes"), "digest": res.get("digest"),
+        },
+        ok=True, arena_id=arena_id,
+    )
     return res
 
 

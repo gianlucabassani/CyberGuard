@@ -82,13 +82,11 @@ operator approving an agent-proposed setup step saw no real output. **Fix:** the
 now persists bounded stdout/stderr, and the configurator card renders a **Setup
 console** (command + exit + real output, terminal-style). Live-verified end-to-end.
 
-### B2 — Headless-browser XSS execution oracle · 🟠 · M (M4)
-The `reflected_xss` validator confirms a nonce reflected **unescaped in an executable
-context** — a strong deterministic baseline, but not proof the payload *executed*. The
-authoritative oracle is a headless browser, deliberately deferred to **M4** (and
-shared with M4's browser tool — build once). Until then, a maximally airtight demo
-should lean on a crash/ASan bug or benchmark-manifest rediscovery rather than a
-headless XSS claim.
+### B2 — Headless-browser XSS execution oracle · 🟢 · DONE (2026-08-02)
+`browser_visit` runs pinned disposable Chromium on the selected arena segment with
+bounded resources/output and no arbitrary URL surface. `reflected_xss` now injects
+a platform-owned DOM marker and confirms only observed JavaScript execution;
+reflection alone remains unverified and a completed non-execution is refuted.
 
 ### B3 — Companion model-provider breadth (BACKLOG P3-4) · 🟢 · **DONE**
 Fully shipped and live-verified. `openrouter` + `huggingface` + `custom` providers

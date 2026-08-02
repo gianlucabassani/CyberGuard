@@ -45,12 +45,49 @@ For an active source-backed arena:
   diff. Query parameters: `base` (`HEAD`, a HEAD ancestor, or 7–40 hex commit),
   optional relative `path`, `context_lines` (0–20), `start_line`, and `max_lines`
   (1–500). Continue at `next_start_line`.
+- `POST /arenas/{id}/workspaces/{node}/patch-artifacts` collects that same
+  paginated view into a bounded, arena-scoped SHA-256 patch artifact. Body fields:
+  `base`, optional `path`, `context_lines`, and up to ten
+  `include_untracked_paths`. Untracked content is opened only after explicit
+  selection and only when the provider proves it is a bounded regular UTF-8 file.
+  The response carries the artifact metadata and exact patch body.
+- `GET /arenas/{id}/evidence-artifacts/{sha256:digest}` downloads the verified
+  patch after re-checking the caller's arena binding and workspace visibility.
 
 The caller never supplies a repository location: it is resolved from deployment
 outputs. Git hooks, pagers, external diff drivers and textconv are disabled.
-Untracked file names are included but their content is not opened. Every request
-records metadata in a `workspace_diff` event; diff content is not copied into the
-event log.
+Changed files are grouped as staged, unstaged, and untracked. Diff and artifact
+events retain metadata/digests only; source and exploit material remain in the
+bounded evidence store, never in the append-only event log.
+
+### Foothold file transfer
+
+- `POST /arenas/{id}/files/upload` accepts `{path, content_b64, node?}` and writes
+  one bounded file below `/opt/nidavellir-transfer` on an arena foothold.
+- `POST /arenas/{id}/files/download` accepts
+  `{path, node?, offset=0, max_bytes}` and returns a base64 chunk, whole-file
+  SHA-256, byte counts, and `next_offset` for continuation.
+
+Paths are relative, traversal is rejected, and attacker bindings are restricted
+to foothold nodes server-side. Docker transfer uses archive APIs instead of a
+shell; downloads reject links and non-regular files. Default limits are 1 MiB per
+file and 256 KiB per returned chunk. Audit events contain path, size, offsets and
+digest—never file contents.
+
+### Arena-scoped headless browser
+
+`POST /arenas/{id}/browser/visit` accepts
+`{node, path="/", params={}, wait_ms=1500}` and returns bounded rendered DOM,
+title, full-DOM SHA-256 and truncation metadata. It never accepts a URL: the API
+resolves the target from that arena's outputs, rejects footholds, and the Docker
+provider repeats IP ownership before attaching disposable Chromium to the target's
+arena segment. The runner is time/resource bounded, capability-dropped,
+no-new-privileges and read-only. Audit events retain metadata and digest—not query
+values or rendered content.
+
+The same primitive is the authoritative `reflected_xss` validator. It injects a
+platform-owned nonce payload and confirms CWE-79 only when JavaScript writes that
+nonce into the rendered DOM. Reflection without execution is not credited.
 
 ### Health Check
 
@@ -474,7 +511,7 @@ first-class evidence. The manifest is operator-only and never shown to an agent.
   MCP `report_finding` backend). Matched against the hidden manifest by **CWE +
   node**, and **deterministically verified** (ADR-0009 item 6): supply the optional
   proof inputs and the platform confirms the finding against the arena — a
-  reflected-XSS nonce reflected unescaped (`path`+`param`+`payload`), an injected
+  reflected-XSS nonce executed in the arena browser (`path`+`param`), an injected
   marker, an OAST callback (`oast_token`), or passive crash-oracle correlation.
   The match **and** the verdict are recorded operator-only; the response stays a
   neutral ack (no oracle — the agent can't learn whether it worked).
@@ -486,9 +523,13 @@ first-class evidence. The manifest is operator-only and never shown to an agent.
   { "title": "SQLi on login", "cwe": "CWE-89", "node": "victim",
     "path": "/vulnerabilities/sqli/", "param": "id", "payload": "1' OR '1'='1",
     "poc": "curl \"http://victim/vulnerabilities/sqli/?id=1' OR '1'='1\" | grep admin",
-    "evidence": "..." }
+    "evidence": "...",
+    "evidence_artifact_digests": ["sha256:0123..."] }
   → { "recorded": true, "finding_id": "7097421dd9fc" }
   ```
+  Each digest must name an artifact from the same arena. Findings persist a
+  verified metadata reference, letting operators download the exact patch used
+  as evidence without copying its body into the finding event.
 - `POST /arenas/{instance_id}/findings/manual` — an **operator-entered** finding
   (a vuln a human found, or one to put on the record). Same body + manifest match +
   verification as `report_finding`, but flagged `manual` and attributed to the

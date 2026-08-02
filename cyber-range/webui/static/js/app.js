@@ -461,6 +461,8 @@
     const note = document.getElementById("workspace-note");
     const more = document.getElementById("workspace-more");
     const refresh = document.getElementById("workspace-refresh");
+    const exportButton = document.getElementById("workspace-export");
+    const includeUntracked = document.getElementById("workspace-include-untracked");
     let nextStart = null;
     let loading = false;
 
@@ -572,6 +574,41 @@
     nodeSelect.addEventListener("change", () => { setFiles([], ""); load(0); });
     pathSelect.addEventListener("change", () => load(0));
     refresh.addEventListener("click", () => load(0));
+    exportButton.addEventListener("click", () => {
+      if (!nodeSelect.value) return;
+      const selected = pathSelect.selectedOptions[0];
+      const isUntracked = selected && selected.textContent.startsWith("? ");
+      if (includeUntracked.checked && (!pathSelect.value || !isUntracked)) {
+        note.textContent = "Select one untracked file before including its content.";
+        return;
+      }
+      exportButton.disabled = true;
+      postJson(
+        "/api/arenas/" + encodeURIComponent(arenaId) + "/workspaces/" +
+          encodeURIComponent(nodeSelect.value) + "/patch-artifacts",
+        {
+          base: (baseInput.value || "HEAD").trim(),
+          path: pathSelect.value || null,
+          context_lines: 3,
+          include_untracked_paths: includeUntracked.checked ? [pathSelect.value] : [],
+        }
+      ).then(({ status, data }) => {
+        if (status !== 200) throw new Error(data.error || data.detail || "Patch export failed");
+        const artifact = data.artifact || {};
+        const findingArtifact = document.getElementById("mf-artifact");
+        if (findingArtifact) findingArtifact.value = artifact.digest || "";
+        const blob = new Blob([data.patch || ""], { type: "text/x-diff;charset=utf-8" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = nodeSelect.value + "-" + (artifact.digest || "patch").slice(-12) + ".patch";
+        link.click();
+        URL.revokeObjectURL(link.href);
+        note.textContent = "Exported " + artifact.bytes + " bytes · " + artifact.digest +
+          " · attached to the next manual finding.";
+      }).catch((error) => {
+        note.textContent = error.message;
+      }).finally(() => { exportButton.disabled = false; });
+    });
     more.addEventListener("click", () => load(nextStart));
   }
 
@@ -1458,6 +1495,8 @@
       node: (document.getElementById("mf-node").value || "").trim(),
       evidence: (document.getElementById("mf-evidence").value || "").trim(),
       poc: (document.getElementById("mf-poc").value || "").trim(),
+      evidence_artifact_digests: (document.getElementById("mf-artifact").value || "").trim()
+        ? [(document.getElementById("mf-artifact").value || "").trim()] : [],
     }).then(({ status, data }) => {
       if (status === 200) location.reload();
       else if (err) err.textContent = data.error || data.detail || "HTTP " + status;

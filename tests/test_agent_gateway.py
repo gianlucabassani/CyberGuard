@@ -62,12 +62,38 @@ class _FakeRestClient:
         self.calls.append(("exec", api_key, arena_id, node, command, timeout))
         return {"node": node, "exit_code": 0, "stdout": f"ran: {command}\n", "stderr": ""}
 
+    def transfer_upload(self, api_key, arena_id, path, content_b64, node=None):
+        self.calls.append(("transfer_upload", api_key, arena_id, path, node))
+        return {"uploaded": True, "node": node or "jump", "path": path, "bytes": 5}
+
+    def transfer_download(
+        self, api_key, arena_id, path, node=None, offset=0, max_bytes=262144
+    ):
+        self.calls.append(
+            ("transfer_download", api_key, arena_id, path, node, offset, max_bytes)
+        )
+        return {
+            "node": node or "jump", "path": path, "content_b64": "cHJvb2Y=",
+            "returned_bytes": 5, "file_bytes": 5, "next_offset": None,
+            "digest": "sha256:" + "a" * 64,
+        }
+
+    def browser_visit(self, api_key, arena_id, node, path="/", params=None, wait_ms=1500):
+        self.calls.append(("browser_visit", api_key, arena_id, node, path, params, wait_ms))
+        return {
+            "success": True, "node": node, "title": "Target",
+            "rendered_dom": "<html>rendered</html>",
+            "dom_sha256": "sha256:" + "b" * 64,
+        }
+
     def report_finding(self, api_key, arena_id, title, cwe=None, node=None, evidence=None,
-                       path=None, param=None, payload=None, oast_token=None, poc=None):
+                       path=None, param=None, payload=None, oast_token=None, poc=None,
+                       evidence_artifact_digests=None):
         self.calls.append(("report_finding", api_key, arena_id, title, cwe, node))
         self.last_finding = {"title": title, "cwe": cwe, "node": node, "evidence": evidence,
                              "path": path, "param": param, "payload": payload,
-                             "oast_token": oast_token, "poc": poc}
+                             "oast_token": oast_token, "poc": poc,
+                             "evidence_artifact_digests": evidence_artifact_digests}
         return {"recorded": True, "finding_id": "abc123"}
 
     def announce_agent(self, api_key, arena_id, model, provider, stance=None):
@@ -95,6 +121,13 @@ class _FakeRestClient:
         return {
             "success": True, "node": node, "changed_file_count": 1,
             "returned_lines": 2, "diff": "-old\n+new", "next_start_line": None,
+        }
+
+    def workspace_patch_artifact(self, api_key, arena_id, node, **options):
+        self.calls.append(("workspace_patch_artifact", api_key, arena_id, node, options))
+        return {
+            "artifact": {"digest": "sha256:" + "a" * 64, "bytes": 12},
+            "patch": "-old\n+new\n",
         }
 
     def list_events(self, api_key, arena_id, limit=100):
@@ -199,16 +232,48 @@ def test_report_finding_proxies_rest_and_is_gated():
         tools.report_finding(_ctx(stance=Stance.defender), arena_id="a1", title="x")
 
 
+def test_attacker_file_transfer_proxies_and_is_stance_gated():
+    ctx = _ctx(stance=Stance.attacker)
+    uploaded = tools.upload_file(ctx, "a1", None, "payload.bin", "cHJvb2Y=")
+    assert uploaded["uploaded"] is True
+    downloaded = tools.download_file(ctx, "a1", "payload.bin", offset=0, max_bytes=32)
+    assert downloaded["content_b64"] == "cHJvb2Y="
+    assert any(call[0] == "transfer_upload" for call in ctx.client.calls)
+    assert any(call[0] == "transfer_download" for call in ctx.client.calls)
+    with pytest.raises(ToolNotAllowed):
+        tools.download_file(_ctx(stance=Stance.defender), "a1", "payload.bin")
+
+
+def test_headless_browser_proxies_is_budgeted_and_traces_metadata(tmp_path):
+    ctx = _ctx(stance=Stance.attacker, trace_dir=str(tmp_path))
+    ctx.step_budget = 1
+    result = tools.browser_visit(
+        ctx, "a1", "web", "/app", {"q": "<script>secret</script>"}, 900
+    )
+    assert result["title"] == "Target"
+    call = next(c for c in ctx.client.calls if c[0] == "browser_visit")
+    assert call[3:7] == ("web", "/app", {"q": "<script>secret</script>"}, 900)
+    trace_body = (tmp_path / "a1.jsonl").read_text()
+    assert '"param_names": ["q"]' in trace_body
+    assert "<script>secret</script>" not in trace_body
+    with pytest.raises(tools.BudgetExceeded):
+        tools.browser_visit(ctx, "a1", "web")
+    with pytest.raises(ToolNotAllowed):
+        tools.browser_visit(_ctx(stance=Stance.defender), "a1", "web")
+
+
 def test_report_finding_forwards_verification_inputs():
     # A3: path/param/payload/oast_token reach the orchestrator so the finding can
     # be ACTIVELY validated, not just passively correlated.
     ctx = _ctx(stance=Stance.attacker)
     tools.report_finding(ctx, arena_id="a1", title="reflected XSS", cwe="CWE-79",
                          node="web", path="/search", param="q",
-                         payload="<svg/onload=alert(1)>", oast_token="tok9")
+                         payload="<svg/onload=alert(1)>", oast_token="tok9",
+                         evidence_artifact_digests=["sha256:" + "a" * 64])
     f = ctx.client.last_finding
     assert f["path"] == "/search" and f["param"] == "q"
     assert f["payload"] == "<svg/onload=alert(1)>" and f["oast_token"] == "tok9"
+    assert f["evidence_artifact_digests"] == ["sha256:" + "a" * 64]
 
 
 def test_get_topology_returns_named_nodes():
@@ -391,7 +456,8 @@ def test_attacker_session_also_registers_the_attacker_tools():
     mcp = build_server(GatewayConfig(env={"NIDAVELLIR_STANCE": "attacker"}))
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert {"run_command", "list_targets", "get_topology", "report_finding",
-            "workspace_status", "workspace_diff"} <= names
+            "workspace_status", "workspace_diff", "workspace_patch_artifact",
+            "upload_file", "download_file", "browser_visit"} <= names
 
 
 def test_workspace_tools_proxy_and_are_stance_gated():
@@ -404,6 +470,12 @@ def test_workspace_tools_proxy_and_are_stance_gated():
     call = next(c for c in ctx.client.calls if c[0] == "workspace_diff")
     assert call[3] == "web"
     assert call[4]["path"] == "src/app.py" and call[4]["start_line"] == 300
+    artifact = tools.workspace_patch_artifact(
+        ctx, "a1", "web", path="src/app.py", include_untracked_paths=["notes.txt"]
+    )
+    assert artifact["artifact"]["digest"].startswith("sha256:")
+    patch_call = next(c for c in ctx.client.calls if c[0] == "workspace_patch_artifact")
+    assert patch_call[4]["include_untracked_paths"] == ["notes.txt"]
     with pytest.raises(ToolNotAllowed):
         tools.workspace_status(_ctx(stance=Stance.defender), "a1")
 
@@ -588,7 +660,7 @@ def test_configurator_stance_owns_only_setup_tools():
     cfg = Session("k", Stance.configurator)
     for t in ("get_setup_brief", "propose_setup_step", "await_setup_step",
               "run_setup_step", "upload_file", "finish_setup",
-              "workspace_status", "workspace_diff"):
+              "workspace_status", "workspace_diff", "workspace_patch_artifact"):
         assert cfg.can_use(t)
     # NO attacker tools — the configurator is victim-scoped, not offensive
     assert not cfg.can_use("run_command")
@@ -608,7 +680,7 @@ def test_configurator_session_registers_its_tools():
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert {"get_setup_brief", "propose_setup_step", "await_setup_step",
             "run_setup_step", "upload_file", "finish_setup",
-            "workspace_status", "workspace_diff"} <= names
+            "workspace_status", "workspace_diff", "workspace_patch_artifact"} <= names
     # no attacker tools leak into the configurator stance
     assert "run_command" not in names and "report_finding" not in names
 

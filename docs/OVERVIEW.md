@@ -116,7 +116,7 @@ A scored eval row (discovery mode — no manifest, so a confirmed crash is the e
   aborts, unhandled 5xx) into deduped `monitor_signal` events. A crash is scored
   evidence even with no manifest.
 - **Deterministic validators (M2).** A finding is *confirmed* only when
-  programmatically proven — a reflected-XSS nonce reflected unescaped, a SQLi marker
+  programmatically proven — a reflected-XSS nonce executed in the arena browser, a SQLi marker
   disclosed, an OAST out-of-band callback, or **passive crash correlation** on the
   finding's node. `confirmed` is tri-state (`true` / `false` / `null`-unknown); only
   `true` earns credit. The verdict is operator-only (the agent gets a neutral ack).

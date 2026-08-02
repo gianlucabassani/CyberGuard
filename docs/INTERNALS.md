@@ -124,6 +124,10 @@ Terraform skeletons (deferred — no live apply).
 - **Exec.** `exec_in_node` runs `timeout <t> sh -c <cmd>` in the container (real
   `docker exec`), returning exit code + stdout/stderr — the backend for the attacker
   stance's `run_command` and for the validator's active probe.
+- **Headless browser.** `browser_visit` starts pinned Chrome headless-shell on the
+  selected target's arena segment after repeating target-IP ownership. The
+  disposable runner is resource/time bounded and hardened; it returns bounded DOM
+  plus a digest and supplies the reflected-XSS execution oracle.
 - **SUT machinery.** `_build_service_image` (build from a remote git context, gated
   by `NIDAVELLIR_ALLOW_SOURCE_BUILD`), `_build_package_image` (apt-install a
   `service.package`), `verify_build_dockerfile` (the synthesis loop's build),
@@ -201,15 +205,16 @@ running, testable arena:
 never on the agent's word.
 
 - **Active validators** (run at report time, injected effect fns):
-  - `reflected_xss` — a unique nonce reflected **unescaped** in an executable HTML
-    context (pluggable headless-browser confirmer for M4).
+  - `reflected_xss` — a platform-owned nonce payload must **execute** in the
+    arena-scoped browser and write its marker into the rendered DOM.
   - `marker` — a planted secret disclosed by injection (e.g. SQLi).
   - `oast_callback` — an out-of-band callback observed.
 - **Passive** `correlate_crash` — ties a finding to a crash-oracle signal on its
   node (the no-manifest credit path).
-- **SSRF-safe probe.** The API binds the active `http_fn` to the arena's **own
-  victim** (path+params only, host fixed), backed by a foothold `curl` over the arena
-  network. It raises on unreachable so the verdict is *unknown*, never a false
+- **SSRF-safe probes.** The API binds active HTTP/browser functions to the arena's
+  **own victim** (path+params only, host fixed), backed by a foothold `curl` or a
+  disposable browser attached to the arena network. It raises on unreachable so
+  the verdict is *unknown*, never a false
   *refuted*.
 - **Tri-state `confirmed`:** `true` (verified) / `false` (refuted — probe ran, effect
   absent) / `null` (unknown — no applicable validator or the probe couldn't run).
