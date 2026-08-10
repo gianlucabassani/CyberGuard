@@ -162,13 +162,15 @@ completion gate.
 2. **Application shell — in progress:** grouped sidebar, global Create,
    target-language breadcrumbs, shared toolbars, and responsive/keyboard shell
    behavior are live. Finish live-browser visual verification and final review.
-3. **Engagement creation — in progress:** `/engagements/new` now captures purpose
-   and challenge/target source before composing the existing builders. Purpose
-   is validated and stored as append-only intent across deployment paths.
+3. **Engagement creation — complete:** `/engagements/new` captures purpose,
+   participant mode, enforced runtime limit, and challenge/target source before
+   composing the existing builders. Purpose
+   and policy are validated and stored as append-only intent across deployment
+   paths; the time box sets deployment expiry.
    Generated/imported challenges return to the builder with intent and selection
    preserved rather than ending the creation journey in the library.
-   Continue with participants, visibility, containment, and monitoring/scoring
-   policy only as matching backend authority is added.
+   Review surfaces visibility, containment, binding/stance, and automatic
+   monitoring/scoring authority without exposing unenforced toggles.
 4. **Workspace:** move arena-detail capabilities tab by tab and add SSE.
 5. **Activity and Home:** add global indexes; redesign Home from real objects.
 6. **Evaluation workbench:** agent registry, suites, trials, runs, comparisons.

@@ -1,5 +1,7 @@
 """Durable, compatibility-safe engagement intent contract."""
 
+from datetime import datetime
+
 import pytest
 from pydantic import ValidationError
 
@@ -22,7 +24,11 @@ def test_engagement_intent_is_append_only_audit_context(monkeypatch):
         "record_event",
         lambda *args, **kwargs: recorded.append((args, kwargs)),
     )
-    request = api.EngagementIntentRequest(engagement_purpose="discovery")
+    request = api.EngagementIntentRequest(
+        engagement_purpose="discovery",
+        participant_mode="agent",
+        engagement_time_box_seconds=7200,
+    )
 
     api._record_engagement_intent(
         "arena-1",
@@ -40,6 +46,11 @@ def test_engagement_intent_is_append_only_audit_context(monkeypatch):
                     "schema": "nidavellir.engagement-intent/v1",
                     "purpose": "discovery",
                     "source": "target",
+                    "participant_mode": "agent",
+                    "time_box_seconds": 7200,
+                    "containment": "provider_enforced",
+                    "monitoring": "automatic",
+                    "scoring": "automatic",
                 },
             ),
             {"actor": "operator-1"},
@@ -59,3 +70,22 @@ def test_omitted_engagement_intent_preserves_compatibility(monkeypatch):
         Principal(name="legacy-client", role="operator"),
         source="challenge",
     )
+
+
+def test_engagement_time_box_controls_deployment_expiry():
+    request = api.EngagementIntentRequest(engagement_time_box_seconds=3600)
+    remaining = (api._engagement_expires_at(request) - datetime.now()).total_seconds()
+    assert 3599 <= remaining <= 3600
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"participant_mode": "spectator"},
+        {"engagement_time_box_seconds": 299},
+        {"engagement_time_box_seconds": 86401},
+    ],
+)
+def test_engagement_policy_rejects_unenforceable_values(payload):
+    with pytest.raises(ValidationError):
+        api.EngagementIntentRequest(**payload)

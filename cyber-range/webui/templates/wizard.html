@@ -43,6 +43,8 @@
 <form method="POST" action="{{ url_for('build_sut') }}" id="wiz-form" enctype="multipart/form-data">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if engagement_purpose %}<input type="hidden" name="engagement_purpose" value="{{ engagement_purpose.id }}">{% endif %}
+  {% if engagement_participant %}<input type="hidden" name="participant_mode" value="{{ engagement_participant.id }}">{% endif %}
+  {% if engagement_time_box %}<input type="hidden" name="engagement_time_box_seconds" value="{{ engagement_time_box }}">{% endif %}
 
   <!-- STEP 1: TARGET -->
   <section class="wiz-panel" data-step="1">

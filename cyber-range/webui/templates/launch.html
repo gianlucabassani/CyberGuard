@@ -43,6 +43,8 @@
       <form method="POST" action="{{ url_for('create_lab') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         {% if engagement_purpose %}<input type="hidden" name="engagement_purpose" value="{{ engagement_purpose.id }}">{% endif %}
+        {% if engagement_participant %}<input type="hidden" name="participant_mode" value="{{ engagement_participant.id }}">{% endif %}
+        {% if engagement_time_box %}<input type="hidden" name="engagement_time_box_seconds" value="{{ engagement_time_box }}">{% endif %}
         <div class="field"><label class="label">Scenario</label>
           <select class="select" name="scenario">
             {% for s in scenarios %}
@@ -69,6 +71,8 @@
       <form method="POST" action="{{ url_for('build_custom') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         {% if engagement_purpose %}<input type="hidden" name="engagement_purpose" value="{{ engagement_purpose.id }}">{% endif %}
+        {% if engagement_participant %}<input type="hidden" name="participant_mode" value="{{ engagement_participant.id }}">{% endif %}
+        {% if engagement_time_box %}<input type="hidden" name="engagement_time_box_seconds" value="{{ engagement_time_box }}">{% endif %}
         <div class="grid cols-2" style="gap:14px">
           <div class="field"><label class="label">Attacker machines</label>
             <select class="select" name="attackers" multiple>

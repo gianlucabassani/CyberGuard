@@ -57,6 +57,8 @@ def test_deploy_accepts_and_persists_pending(client):
             "scenario": "basic_pentest",
             "instance_id": "lab-team-1",
             "engagement_purpose": "benchmark",
+            "participant_mode": "agent",
+            "engagement_time_box_seconds": 3600,
         },
     )
     assert resp.status_code == 200
@@ -77,6 +79,11 @@ def test_deploy_accepts_and_persists_pending(client):
         "schema": "nidavellir.engagement-intent/v1",
         "purpose": "benchmark",
         "source": "challenge",
+        "participant_mode": "agent",
+        "time_box_seconds": 3600,
+        "containment": "provider_enforced",
+        "monitoring": "automatic",
+        "scoring": "automatic",
     }
 
 

@@ -111,6 +111,7 @@ def health():
 # against the registry, which is also the path-traversal boundary.
 INSTANCE_NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,39}$"
 ENGAGEMENT_PURPOSES = frozenset({"benchmark", "discovery", "calibration", "research"})
+ENGAGEMENT_PARTICIPANT_MODES = frozenset({"operator", "agent", "mixed"})
 
 
 class EngagementIntentRequest(BaseModel):
@@ -122,6 +123,12 @@ class EngagementIntentRequest(BaseModel):
     """
 
     engagement_purpose: str | None = Field(default=None, max_length=32)
+    participant_mode: str | None = Field(default=None, max_length=16)
+    engagement_time_box_seconds: int | None = Field(
+        default=None,
+        ge=300,
+        le=86400,
+    )
 
     @field_validator("engagement_purpose")
     @classmethod
@@ -131,6 +138,19 @@ class EngagementIntentRequest(BaseModel):
                 "engagement_purpose must be benchmark, discovery, calibration, or research"
             )
         return value
+
+    @field_validator("participant_mode")
+    @classmethod
+    def participant_mode_must_be_known(cls, value: str | None) -> str | None:
+        if value is not None and value not in ENGAGEMENT_PARTICIPANT_MODES:
+            raise ValueError("participant_mode must be operator, agent, or mixed")
+        return value
+
+
+def _engagement_expires_at(request_model: EngagementIntentRequest) -> datetime:
+    if request_model.engagement_time_box_seconds is not None:
+        return datetime.now() + timedelta(seconds=request_model.engagement_time_box_seconds)
+    return datetime.now() + timedelta(minutes=config.LAB_TTL_MINUTES)
 
 
 def _record_engagement_intent(
@@ -149,6 +169,11 @@ def _record_engagement_intent(
             "schema": "nidavellir.engagement-intent/v1",
             "purpose": request_model.engagement_purpose,
             "source": source,
+            "participant_mode": request_model.participant_mode or "unspecified",
+            "time_box_seconds": request_model.engagement_time_box_seconds,
+            "containment": "provider_enforced",
+            "monitoring": "automatic",
+            "scoring": "automatic",
         },
         actor=principal.name,
     )
@@ -695,7 +720,7 @@ def deploy_custom_arena(
 
     system_id = str(uuid.uuid4())
     label = f"custom:{'+'.join(req.attackers)}+{'+'.join(req.victims)}"[:64]
-    expires_at = datetime.now() + timedelta(minutes=config.LAB_TTL_MINUTES)
+    expires_at = _engagement_expires_at(req)
     db.create_deployment(
         system_id, req.instance_id, label,
         provider=req.provider, actor=principal.name, expires_at=expires_at,
@@ -919,7 +944,7 @@ def deploy_sut_arena(
 
     system_id = str(uuid.uuid4())
     label = f"sut:{req.repo}"[:64]
-    expires_at = datetime.now() + timedelta(minutes=config.LAB_TTL_MINUTES)
+    expires_at = _engagement_expires_at(req)
     db.create_deployment(
         system_id, req.instance_id, label,
         provider=req.provider, actor=principal.name, expires_at=expires_at,
@@ -1132,7 +1157,7 @@ def deploy_oci_arena(
 
     system_id = str(uuid.uuid4())
     label = f"oci:{req.image}"[:64]
-    expires_at = datetime.now() + timedelta(minutes=config.LAB_TTL_MINUTES)
+    expires_at = _engagement_expires_at(req)
     db.create_deployment(
         system_id,
         req.instance_id,
@@ -1386,7 +1411,7 @@ def deploy_source_bundle_arena(
 
     system_id = str(uuid.uuid4())
     label = f"bundle:{artifact['filename']}"[:64]
-    expires_at = datetime.now() + timedelta(minutes=config.LAB_TTL_MINUTES)
+    expires_at = _engagement_expires_at(req)
     db.create_deployment(
         system_id,
         req.instance_id,
@@ -1605,7 +1630,7 @@ def deploy(
     # 3. Create 'Pending' record in DB
     # id = UUID, user_id = Friendly Name; provider recorded so destroy
     # later runs on the same backend; expires_at gives the reaper a TTL.
-    expires_at = datetime.now() + timedelta(minutes=config.LAB_TTL_MINUTES)
+    expires_at = _engagement_expires_at(req)
     db.create_deployment(
         system_id,
         friendly_name,

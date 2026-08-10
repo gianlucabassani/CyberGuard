@@ -90,6 +90,11 @@ def test_new_engagement_entry_renders_purpose_and_source_choices(client):
         assert purpose in html
     assert 'name="source" value="challenge"' in html
     assert 'name="source" value="target"' in html
+    assert 'name="participant_mode" value="operator"' in html
+    assert 'name="participant_mode" value="agent"' in html
+    assert 'name="participant_mode" value="mixed"' in html
+    assert 'name="engagement_time_box_seconds"' in html
+    assert "Platform-enforced defaults" in html
     assert html.count('aria-current="page"') == 1
 
 
@@ -113,9 +118,11 @@ def test_new_engagement_hands_off_to_existing_builder(client, source, expected_p
         data={"purpose": "benchmark", "source": source, "csrf_token": token},
     )
     assert response.status_code == 302
-    assert response.headers["Location"].endswith(
-        f"{expected_path}?purpose=benchmark"
-    )
+    location = response.headers["Location"]
+    assert expected_path in location
+    assert "purpose=benchmark" in location
+    assert "participant_mode=operator" in location
+    assert "engagement_time_box_seconds=3600" in location
 
 
 def test_new_engagement_rejects_unknown_navigation_values(client):
@@ -1065,6 +1072,8 @@ def test_build_custom_posts_multiple_attackers(client, monkeypatch):
     resp = client.post("/build-custom", data=MultiDict([
         ("instance_id", "multi"),
         ("engagement_purpose", "calibration"),
+        ("participant_mode", "mixed"),
+        ("engagement_time_box_seconds", "7200"),
         ("attackers", "kali-cli"),
         ("attackers", "ubuntu"),
         ("victims", "dvwa"),
@@ -1074,3 +1083,5 @@ def test_build_custom_posts_multiple_attackers(client, monkeypatch):
     assert captured["url"].endswith("/arenas/custom")
     assert captured["json"]["attackers"] == ["kali-cli", "ubuntu"]
     assert captured["json"]["engagement_purpose"] == "calibration"
+    assert captured["json"]["participant_mode"] == "mixed"
+    assert captured["json"]["engagement_time_box_seconds"] == 7200

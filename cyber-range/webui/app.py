@@ -537,10 +537,31 @@ _ENGAGEMENT_PURPOSES = (
 )
 _ENGAGEMENT_PURPOSE_BY_ID = {item["id"]: item for item in _ENGAGEMENT_PURPOSES}
 _ENGAGEMENT_SOURCES = {"challenge", "target"}
+_ENGAGEMENT_PARTICIPANTS = (
+    {"id": "operator", "label": "Operator-led", "description": "A human drives the engagement; agents may be connected later."},
+    {"id": "agent", "label": "Agent-led", "description": "A bound autonomous agent is the primary participant."},
+    {"id": "mixed", "label": "Mixed", "description": "Human and bound agents collaborate in the same engagement."},
+)
+_ENGAGEMENT_PARTICIPANT_BY_ID = {
+    item["id"]: item for item in _ENGAGEMENT_PARTICIPANTS
+}
+_ENGAGEMENT_TIME_BOXES = {1800: "30 minutes", 3600: "1 hour", 7200: "2 hours", 14400: "4 hours"}
 
 
 def _engagement_purpose(value):
     return _ENGAGEMENT_PURPOSE_BY_ID.get(value)
+
+
+def _engagement_participant(value):
+    return _ENGAGEMENT_PARTICIPANT_BY_ID.get(value)
+
+
+def _engagement_time_box(value):
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds in _ENGAGEMENT_TIME_BOXES else None
 
 
 @app.route("/engagements/new", methods=["GET", "POST"])
@@ -548,20 +569,39 @@ def new_engagement():
     """Choose engagement intent and source before entering an existing builder."""
     selected_purpose = request.values.get("purpose", "")
     selected_source = request.values.get("source", "")
+    selected_participant = request.values.get("participant_mode", "operator")
+    selected_time_box = _engagement_time_box(
+        request.values.get("engagement_time_box_seconds", 3600)
+    )
     if request.method == "POST":
         if selected_purpose not in _ENGAGEMENT_PURPOSE_BY_ID:
             flash("Choose the engagement purpose.", "warning")
         elif selected_source not in _ENGAGEMENT_SOURCES:
             flash("Choose a challenge or target source.", "warning")
+        elif selected_participant not in _ENGAGEMENT_PARTICIPANT_BY_ID:
+            flash("Choose who will drive the engagement.", "warning")
+        elif selected_time_box is None:
+            flash("Choose a supported engagement time box.", "warning")
         else:
             endpoint = "launch" if selected_source == "challenge" else "wizard"
-            return redirect(url_for(endpoint, purpose=selected_purpose))
+            return redirect(
+                url_for(
+                    endpoint,
+                    purpose=selected_purpose,
+                    participant_mode=selected_participant,
+                    engagement_time_box_seconds=selected_time_box,
+                )
+            )
     return render_template(
         "engagement_new.html",
         active="engagement_new",
         purposes=_ENGAGEMENT_PURPOSES,
+        participants=_ENGAGEMENT_PARTICIPANTS,
+        time_boxes=_ENGAGEMENT_TIME_BOXES,
         selected_purpose=selected_purpose,
         selected_source=selected_source,
+        selected_participant=selected_participant,
+        selected_time_box=selected_time_box,
     )
 
 
@@ -575,6 +615,9 @@ def launch():
     return render_template("launch.html", active="launch", scenarios=scenarios,
                            attackers=attackers, victims=victims, default_infra=default_infra,
                            engagement_purpose=_engagement_purpose(request.args.get("purpose")),
+                           engagement_participant=_engagement_participant(request.args.get("participant_mode")),
+                           engagement_time_box=_engagement_time_box(request.args.get("engagement_time_box_seconds")),
+                           engagement_time_box_label=_ENGAGEMENT_TIME_BOXES.get(_engagement_time_box(request.args.get("engagement_time_box_seconds"))),
                            engagement_source="Challenge",
                            selected_scenario=request.args.get("scenario", ""))
 
@@ -587,6 +630,9 @@ def wizard():
         "wizard.html",
         active="wizard",
         engagement_purpose=_engagement_purpose(request.args.get("purpose")),
+        engagement_participant=_engagement_participant(request.args.get("participant_mode")),
+        engagement_time_box=_engagement_time_box(request.args.get("engagement_time_box_seconds")),
+        engagement_time_box_label=_ENGAGEMENT_TIME_BOXES.get(_engagement_time_box(request.args.get("engagement_time_box_seconds"))),
         engagement_source="Target",
     )
 
@@ -599,6 +645,8 @@ def sut_preview_proxy():
     payload = {
         "instance_id": (body.get("instance_id") or "wizard-preview").strip() or "wizard-preview",
         "engagement_purpose": body.get("engagement_purpose") or None,
+        "participant_mode": body.get("participant_mode") or None,
+        "engagement_time_box_seconds": body.get("engagement_time_box_seconds") or None,
         "ports": body.get("ports") or [],
         "include_attacker": bool(body.get("include_attacker", True)),
         "authorization_basis": body.get("authorization_basis") or "public_oss",
@@ -876,6 +924,8 @@ def create_lab():
             "scenario": request.form.get("scenario"),
             "instance_id": request.form.get("instance_id"),
             "engagement_purpose": request.form.get("engagement_purpose") or None,
+            "participant_mode": request.form.get("participant_mode") or None,
+            "engagement_time_box_seconds": _engagement_time_box(request.form.get("engagement_time_box_seconds")),
         }, headers=API_HEADERS, timeout=5)
         if resp.status_code == 422:
             try:
@@ -905,6 +955,8 @@ def build_custom():
         resp = requests.post(f"{API_URL}/arenas/custom", json={
             "instance_id": instance_id, "attackers": attackers, "victims": victims,
             "engagement_purpose": request.form.get("engagement_purpose") or None,
+            "participant_mode": request.form.get("participant_mode") or None,
+            "engagement_time_box_seconds": _engagement_time_box(request.form.get("engagement_time_box_seconds")),
         }, headers=API_HEADERS, timeout=10)
         if resp.status_code == 200:
             flash(f"Building '{instance_id}': {' + '.join(attackers)} vs "
@@ -929,15 +981,26 @@ def build_sut():
     """Launch a Git checkout or immutable OCI software-under-test arena."""
     f = request.form
     engagement_purpose = f.get("engagement_purpose", "")
+    participant_mode = f.get("participant_mode", "")
+    engagement_time_box = _engagement_time_box(f.get("engagement_time_box_seconds"))
+    wizard_args = {}
+    if _engagement_purpose(engagement_purpose):
+        wizard_args["purpose"] = engagement_purpose
+    if _engagement_participant(participant_mode):
+        wizard_args["participant_mode"] = participant_mode
+    if engagement_time_box:
+        wizard_args["engagement_time_box_seconds"] = engagement_time_box
     wizard_url = url_for(
         "wizard",
-        **({"purpose": engagement_purpose} if _engagement_purpose(engagement_purpose) else {}),
+        **wizard_args,
     )
     target_type = f.get("target_type", "git")
     ports = [int(p) for p in re.findall(r"\d+", f.get("ports", ""))][:8]
     payload = {
         "instance_id": f.get("instance_id"),
         "engagement_purpose": engagement_purpose or None,
+        "participant_mode": f.get("participant_mode") or None,
+        "engagement_time_box_seconds": _engagement_time_box(f.get("engagement_time_box_seconds")),
         "ports": ports,
         "include_attacker": f.get("include_attacker") == "on",
         "authorization_basis": f.get("authorization_basis", "public_oss"),

@@ -215,7 +215,7 @@ Engagements, Evaluations, Library, Activity, Administration, and the workspace
 below. An operator can locate every existing function; no shipped capability is
 orphaned or duplicated. → ADR-0012.
 
-### C2 — Unified engagement creation · **IN PROGRESS**
+### C2 — Unified engagement creation · **COMPLETE**
 
 Replace separate Launch/SUT mental models with one GUI wizard composed from
 shared steps:
@@ -239,17 +239,32 @@ validated builder with the chosen context visible. Global Create, Home,
 Engagements, and challenge-library actions use this entry; `/launch` and
 `/wizard` remain compatibility routes. No deployment endpoint, authorization
 confirmation, setup consent, or review gate was weakened. The remaining C2 work
-folds participant, visibility, containment, monitoring, and scoring choices into
-the composed journey. Purpose is now validated by every deployment request and
-persisted as an append-only `engagement_intent` event; compatibility clients may
-omit it. Generated, pasted, and Vulhub challenges now return to the same builder
+at that point was participant/policy composition. Purpose was validated by every
+deployment request and persisted as an append-only `engagement_intent` event;
+compatibility clients could omit it. Generated, pasted, and Vulhub challenges return to the same builder
 with the imported challenge selected and purpose preserved instead of dropping
 the operator into the library. Remaining policy controls wait for matching
 backend enforcement.
 
+**Completion (2026-08-10).** The composed journey now captures purpose, source,
+participant mode, and an enforced engagement time box. Every predefined,
+custom, generated, pasted, Vulhub, Git, OCI, and local-bundle path carries that
+contract into the existing backend request. Purpose/participants/policy are
+recorded once as append-only intent; the time box controls deployment expiry.
+Review distinguishes selectable intent from authoritative policy: agent access
+and stance remain binding-enforced, target agent visibility remains black-box
+unless a challenge explicitly declares white-box source, runtime containment is
+provider-enforced, and monitoring/scoring are automatically derived. Generated
+infrastructure still requires import/review before launch, and target
+authorization/setup consent is unchanged. Legacy `/launch` and `/wizard` routes
+remain valid compatibility entry points.
+
 **Acceptance.** From the browser, the operator can launch every currently
 supported predefined, custom, generated, Vulhub, Git, OCI, and local-bundle path
 through one coherent journey, with the same backend validation as today.
+
+**Met in source/render/contract tests; live browser confirmation remains part of
+the cross-cutting C1 visual gate.**
 
 ### C3 — Engagement/run workspace
 

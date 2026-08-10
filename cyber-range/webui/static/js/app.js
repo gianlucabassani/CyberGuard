@@ -1696,7 +1696,11 @@
     const continueWithImportedChallenge = (scenarioId) => {
       const params = new URLSearchParams();
       const purposeInput = document.querySelector('[name="engagement_purpose"]');
+      const participantInput = document.querySelector('[name="participant_mode"]');
+      const timeBoxInput = document.querySelector('[name="engagement_time_box_seconds"]');
       if (purposeInput && purposeInput.value) params.set("purpose", purposeInput.value);
+      if (participantInput && participantInput.value) params.set("participant_mode", participantInput.value);
+      if (timeBoxInput && timeBoxInput.value) params.set("engagement_time_box_seconds", timeBoxInput.value);
       if (scenarioId) params.set("scenario", scenarioId);
       window.location.href = "/launch" + (params.toString() ? "?" + params.toString() : "");
     };
@@ -2086,6 +2090,8 @@
       const body = {
         instance_id: document.getElementById("wiz-name").value.trim() || "wizard-preview",
         engagement_purpose: (document.querySelector('[name="engagement_purpose"]') || {}).value || null,
+        participant_mode: (document.querySelector('[name="participant_mode"]') || {}).value || null,
+        engagement_time_box_seconds: +(document.querySelector('[name="engagement_time_box_seconds"]') || {}).value || null,
         target_type: targetType.value,
         repo: document.getElementById("wiz-repo").value.trim(),
         ref: document.getElementById("wiz-ref").value.trim() || null,
@@ -2105,6 +2111,8 @@
       const bundleName = bundleInput.files.length ? bundleInput.files[0].name : "no archive";
       const recapRows = [
         ["Purpose", body.engagement_purpose ? body.engagement_purpose.replace(/_/g, " ") : "compatibility path"],
+        ["Participants", body.participant_mode ? body.participant_mode.replace(/_/g, " ") : "unspecified"],
+        ["Engagement time box", body.engagement_time_box_seconds ? body.engagement_time_box_seconds + "s" : "platform default"],
         ["Target", isOci() ? body.image : (isBundle() ? bundleName :
           body.repo + (body.ref ? " @ " + body.ref : ""))],
         ["Platform", isOci() ? body.platform : "provider native"],

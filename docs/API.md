@@ -108,6 +108,12 @@ Deploy requests are validated before anything is queued (`422` on failure):
   `research`. The orchestrator records it once as an append-only
   `engagement_intent` event with challenge/target source; it does not override
   scenario, provider, containment, or scoring policy.
+- `participant_mode` is optional immutable intent: `operator`, `agent`, or
+  `mixed`. It does not grant agent access; arena bindings and stance capabilities
+  remain authoritative.
+- `engagement_time_box_seconds` is an optional enforced runtime limit from 300
+  through 86400 seconds. When supplied, it sets the deployment expiry used by
+  the reaper; otherwise the installation-wide TTL remains in force.
 
 ### Scenario Registry
 
