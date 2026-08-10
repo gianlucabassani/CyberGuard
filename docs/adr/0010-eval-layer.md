@@ -1,11 +1,16 @@
-# ADR-0010: Eval layer — run records, trace→dataset export, reference harness, replay
+# ADR-0010: Eval layer — eval records, trace→dataset export, reference harness, replay
 
-- **Status:** Accepted (2026-07-14 — run/eval-export record + OpenInference trace
-  alignment landed; the reference harness, scalable batch suite runner, and
-  deterministic replay land in this same increment; the recorded flagship demo is
-  the remaining M3 acceptance item)
+- **Status:** Accepted (2026-07-14 — eval-export record, OpenInference trace
+  alignment, reference harness, scalable batch suite runner, and deterministic
+  replay landed)
 - **Date:** 2026-07-14
 - **Deciders:** Gianluca Bassani
+
+> **2026-08-10 planning amendment:** this ADR's event-derived eval record remains
+> the export contract. Durable Agent build/Suite/Evaluation/Run/Trial product
+> records and GUI paired comparison are separate follow-on work in ROADMAP
+> E1–E5. The public proof is ROADMAP P1. This clarifies scope; it does not replace
+> any accepted decision below.
 
 ## Context
 
@@ -100,6 +105,5 @@ stable before the data is complete.
   export flags it rather than guessing). Deterministic replay depends on pinning the
   exact spec + transcript; non-determinism in the target image is out of our control
   and is recorded, not hidden.
-- Follow-ups: parts 3–4 (reference harness, replay) complete this ADR; the flagship
-  demo (M3 acceptance) rides on the harness; M5 consumes these rows for agent-version
-  regression.
+- Follow-up: ROADMAP E1–E5 consumes these rows for durable, GUI-driven
+  agent-version regression; ROADMAP P1 publishes the held-out proof.

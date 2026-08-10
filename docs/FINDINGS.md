@@ -54,7 +54,7 @@ foothold images active validation works from.
 
 ---
 
-## B. Improvement vectors (open)
+## B. Improvement vectors
 
 ### B1 — Full-compose-stack verification · 🟢 · **VERIFIED (2026-07-14)**
 Ran end-to-end through the live `docker-compose` stack (orchestrator + Celery worker +
@@ -107,37 +107,61 @@ modal overlay** — the page shows a compact overview (mode + steps + status) an
 method chooser (operator / agent-proposal / autonomous) + live setup console open in
 the pop-up. Live-verified.
 
-### B4 — Reference-agent auth matrix · 🟡 · S–M
+### B4 — Console information architecture cannot absorb evaluation cleanly · 🟠 · L
+
+The console has real pages for arenas, launch, SUT intake, inventory, live agent
+attribution, logs, settings, findings, evidence, and configuration, but those
+capabilities reflect implementation increments rather than durable product
+objects. Adding agent builds, suites, trials, runs, and comparisons as more
+siblings would make navigation and arena detail substantially harder to use.
+
+**Decision:** ADR-0012 and ROADMAP C1–C4 reorganize the GUI around Engagements,
+Evaluations, Library, Activity, and Administration; unify Launch/SUT; decompose
+arena detail into a contextual workspace; preserve feature parity during migration.
+
+### B5 — Reference-agent auth matrix · 🟡 · S–M
 `AnthropicBrain` (Messages API) needs an API key and hasn't been run against the real
 API (no key available in dev). The subscription path (Claude Code) is wired and
 flag-validated but its `claude -p` reasoning run is user-triggered (spending + nesting
 make it inappropriate to auto-run). Optional: an `OpenAICompatBrain` so the harness
 can drive OpenRouter/HF/DeepSeek models for API-key runs.
 
-### B5 — Build tiers beyond Dockerfile · 🟡 · M (ADR-0008)
+### B6 — Build tiers beyond Dockerfile · 🟡 · M (ADR-0008)
 `build_planner` classifies **compose / devcontainer / buildpack** tiers but only the
 Dockerfile tier + LLM synthesis are *executed*. Wiring a compose runtime, the
 `devcontainer` CLI, or `pack`/Paketo would widen the set of repos that stand up
 without synthesis.
 
-### B6 — M3 remaining deliverables · 🟠 · M
-Difficulty tiers + First-Solve-Time, guided-vs-unguided modes, a held-out
-(non-public) set, and the **SSE live feed** (retire the 5s console polling) — plus the
-headline: the **recorded flagship demo**. The engine is ready; these are polish +
-presentation.
+### B7 — Research runtime remains incomplete · 🟠 · M–L
 
-### B7 — First-class `runs` record for regression (M5) · 🟡 · M
-Eval rows are derived on demand from events. M5's agent-version comparison (vN vs
-vN+1) will want a materialized `runs` table + a batch replay/diff. The row schema is
-already stable (ADR-0010), so this is additive.
+The browser and file/evidence slices are real, but a serious offensive runtime
+still needs structured HTTP inspect/replay/modify, a confined PoC sandbox, SSH
+tunnelling, durable fail-closed budgets, and kill switches. These now follow the
+C1/C3 console foundation so their controls land in a stable workspace rather than
+adding more arena-page cards.
 
-### B8 — VM / cloud providers are skeletons · 🟡 · L (deferred)
+### B8 — Evaluation is exportable but not yet a durable product · 🟠 · L
+
+Eval rows are derived on demand from events, and the reference harness can run a
+suite, but there are no first-class Agent build, Suite, Evaluation, Run, or Trial
+records; no GUI experiment workflow; no active release episode; and no paired
+N-vs-N+1 comparison. ROADMAP E1–E5 makes this the evaluation workbench after the
+console and research-runtime foundations.
+
+### B9 — Held-out benchmark proof is missing · 🟠 · M
+
+Public labs and colocated manifests are useful calibration but weak public
+evidence because of contamination and overfitting. The flagship needs a private
+or held-out suite, repeated trials, a leakage policy, infrastructure-failure
+handling, and a recorded GUI comparison—not only a successful exploit demo.
+
+### B10 — VM / cloud providers are skeletons · 🟡 · L (deferred)
 `openstack`/`aws`/`libvirt` pass `tofu validate` but have **no live apply**;
 docker-local is the whole substrate today. Real VM arenas (libvirt/QEMU increment 2 —
 live boot + `exec_in_node` + egress) unblock VM-class scenarios. Deliberately deferred
 until the H1 spine is compelling.
 
-### B9 — Doc/tree drift guardrail · 🟡 · S
+### B11 — Doc/tree drift guardrail · 🟡 · S
 Several times this cycle the ROADMAP/ADR status lagged the code (e.g. M2 "not yet
 built" while `monitor.py` existed; ADR-0007/0008 stuck "Proposed" after shipping). A
 lightweight check (or discipline) to reconcile ADR/ROADMAP status against the tree at
@@ -153,19 +177,21 @@ each milestone would prevent stale planning docs.
 - **Containment** is default-on and CI-tested (no-egress + canary).
 - **No AI shipped** — the scope boundary holds across generation, validation, and the
   harness; the reference agent is thin, optional wiring.
-- **671 tests, `make check` green**; event-backed design meant M2/M3 needed no
-  migrations.
+- **771 tests passed in the declared Python 3.11 container gate** on 2026-08-02;
+  Ruff clean and no medium/high Bandit findings. Host Python 3.13 currently hangs
+  in Starlette `TestClient` and is not the supported full-test path.
 
 ---
 
 ## D. Suggested order
 
-1. **A3** (forward validation inputs through MCP `report_finding`) — small, unlocks
-   active proof for real agents.
-2. **B6 flagship demo** — the M3 acceptance artifact.
-3. **B3 / P3-4** (companion providers) — small, self-contained, unblocks non-Anthropic
-   companion use.
-4. **B1** (one real compose-stack run) — retires the verification caveat.
-5. **A4/A5** (recon polish) alongside the above.
-6. Then **M4** (headless browser + code-exec sandbox + fail-closed budgets) — B2 rides
-   with it, and it's the Horizon-2 graduation gate.
+1. **B4 / ROADMAP C1:** prototype the object model and routes, then ship the
+   grouped application shell with compatibility navigation.
+2. **ROADMAP C2–C4:** unify engagement creation, decompose arena detail, add SSE,
+   then build object-driven Activity/Home.
+3. **B7 / ROADMAP R1–R3:** finish HTTP, PoC sandbox, tunnel, budgets, and kill switches.
+4. **B8 / ROADMAP E1–E5:** durable experiment records, generic agent drivers,
+   GUI suites/runs/comparisons, and active episodes.
+5. **B9 / ROADMAP P1:** held-out repeated suite and recorded comparison proof.
+6. Keep build-tier breadth and VM/cloud providers deferred unless a selected
+   challenge requires them.

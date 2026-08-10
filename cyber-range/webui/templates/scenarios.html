@@ -1,22 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Inventory{% endblock %}
-{% block crumb %}Inventory{% endblock %}
+{% block title %}Challenges{% endblock %}
+{% block crumb %}Library <span class="sep">/</span> Challenges{% endblock %}
 {% block head %}<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div>
     <div class="eyebrow">Library</div>
-    <h1>Scenario inventory</h1>
-    <div class="sub">Every deployable pack — built-in and imported — with the machines inside and its topology.</div>
+    <h1>Challenge library</h1>
+    <div class="sub">Every deployable challenge — built-in and imported — with its machines and topology.</div>
   </div>
   <div class="head-actions">
     <a href="{{ url_for('launch') }}" class="btn"><i class="fa-solid fa-file-import"></i> Import</a>
-    <a href="{{ url_for('launch') }}" class="btn btn-primary"><i class="fa-solid fa-rocket"></i> Launch</a>
+    <a href="{{ url_for('new_engagement', source='challenge') }}" class="btn btn-primary"><i class="fa-solid fa-plus"></i> New engagement</a>
   </div>
 </div>
 
-<div style="display:flex; gap:12px; align-items:center; margin-bottom:18px; flex-wrap:wrap">
+<div class="toolbar toolbar--spacious">
   <div style="position:relative; flex:1; min-width:220px; max-width:340px">
     <i class="fa-solid fa-magnifying-glass" style="position:absolute; left:12px; top:11px; color:var(--faint); font-size:13px"></i>
     <input class="input" id="inv-search" style="padding-left:34px" placeholder="Search scenarios…">

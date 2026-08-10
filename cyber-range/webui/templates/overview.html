@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
-{% block title %}Dashboard{% endblock %}
-{% block crumb %}Dashboard{% endblock %}
+{% block title %}Home{% endblock %}
+{% block crumb %}Home{% endblock %}
 
 {% block content %}
 <div class="page-head">
@@ -11,8 +11,8 @@
     <div class="sub">Live arenas, scenario library, and host capacity — at a glance.</div>
   </div>
   <div class="head-actions">
-    <a href="{{ url_for('scenarios') }}" class="btn"><i class="fa-solid fa-cubes"></i> Inventory</a>
-    <a href="{{ url_for('launch') }}" class="btn btn-primary"><i class="fa-solid fa-rocket"></i> Launch arena</a>
+    <a href="{{ url_for('challenge_library') }}" class="btn"><i class="fa-solid fa-cubes"></i> Challenges</a>
+    <a href="{{ url_for('new_engagement') }}" class="btn btn-primary"><i class="fa-solid fa-plus"></i> New engagement</a>
   </div>
 </div>
 
@@ -62,7 +62,7 @@
 
   <!-- recent arenas -->
   <div class="card">
-    <div class="card-head"><span class="label">Active &amp; recent arenas</span><a class="more" href="{{ url_for('arenas') }}">View all</a></div>
+    <div class="card-head"><span class="label">Active &amp; recent engagements</span><a class="more" href="{{ url_for('engagements') }}">View all</a></div>
     {% if recent %}
     <div class="rows">
       {% for id, v in recent %}
@@ -78,7 +78,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <div class="empty"><i class="fa-solid fa-layer-group"></i>No arenas yet. <a href="{{ url_for('launch') }}" style="color:var(--accent)">Launch one</a>.</div>
+    <div class="empty"><i class="fa-solid fa-layer-group"></i>No engagements yet. <a href="{{ url_for('new_engagement') }}" style="color:var(--accent)">Create one</a>.</div>
     {% endif %}
   </div>
 </div>

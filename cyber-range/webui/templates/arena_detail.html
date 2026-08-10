@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
 {% block title %}{{ instance_name }}{% endblock %}
-{% block crumb %}<a href="{{ url_for('arenas') }}">Arenas</a> / <b>{{ instance_name }}</b>{% endblock %}
+{% block crumb %}<a href="{{ url_for('engagements') }}">Engagements</a> <span class="sep">/</span> {{ instance_name }}{% endblock %}
 {% block head %}<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>{% endblock %}
 
 {% block content %}
@@ -10,6 +10,11 @@
     <div class="flexrow">
       <h1 style="margin:0">{{ instance_name }}</h1>
       <span id="lab-status">{{ ui.status_badge(state) }}</span>
+      {% if engagement_intent %}
+      <span class="badge badge--accent" title="Immutable engagement intent">
+        <i class="fa-solid fa-crosshairs"></i> {{ engagement_intent.purpose | replace('_', ' ') }}
+      </span>
+      {% endif %}
       {% if outputs.egress == 'blocked' %}
       <span class="badge badge--ok" title="Arena has no internet egress (contained)"><i class="fa-solid fa-lock"></i> contained</span>
       {% elif outputs.egress == 'open' %}
@@ -19,7 +24,7 @@
     <div class="sub mono">{{ provider or 'provider ?' }} · {{ instance_id }}</div>
   </div>
   <div class="actions">
-    <a href="{{ url_for('arenas') }}" class="btn btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</a>
+    <a href="{{ url_for('engagements') }}" class="btn btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back</a>
     <button onclick="destroyInstance('{{ instance_id }}')" class="btn btn-danger"><i class="fa-solid fa-trash-can"></i> Destroy</button>
   </div>
 </div>
@@ -123,7 +128,7 @@
     <button class="modal__x" onclick="Nidavellir.closeConfigurator()"><i class="fa-solid fa-xmark"></i></button>
     <div class="modal__head">
       <span class="model-bubble" style="background:linear-gradient(150deg,var(--accent),var(--accent-deep));color:#1a1206"><i class="fa-solid fa-screwdriver-wrench"></i></span>
-      <div><div class="modal__title">Configurator</div><div class="modal__sub">choose how to set the SUT up, then bring it live on the victim</div></div>
+      <div><div class="modal__title">Configurator</div><div class="modal__sub">choose how to set the target up, then bring it live on the victim</div></div>
     </div>
     <div id="cfg-board"><div class="empty" style="padding:22px"><i class="fa-solid fa-circle-notch fa-spin"></i>Loading…</div></div>
     <div id="cfg-actions"></div>
@@ -348,7 +353,7 @@
 </div>
 
 {% if score and score.manifest %}
-<div class="card pad-0" style="margin-top:16px">
+<div class="card pad-0" id="challenges-panel" style="margin-top:16px">
   <div class="card-head"><h3><i class="fa-solid fa-bullseye"></i> Challenges</h3>
     <span class="muted" style="font-weight:400;font-size:12.5px">— ground truth, hidden by default (spoilers)</span>
     <div class="spacer"></div>
@@ -400,7 +405,7 @@
     <span class="muted" style="font-weight:400;font-size:12.5px">— every tool call &amp; finding, as it happens</span>
     <div class="spacer"></div>
     <span id="log-count" class="muted mono" style="font-size:12px"></span>
-    <a href="{{ url_for('audit') }}" class="muted" style="font-size:12.5px;margin-left:12px">Full audit <i class="fa-solid fa-arrow-right"></i></a>
+    <a href="{{ url_for('audit_trail') }}" class="muted" style="font-size:12.5px;margin-left:12px">Full audit <i class="fa-solid fa-arrow-right"></i></a>
   </div>
   <div id="log-stream"><div class="empty" style="padding:24px"><i class="fa-solid fa-circle-notch fa-spin"></i>Waiting for activity…</div></div>
 </div>

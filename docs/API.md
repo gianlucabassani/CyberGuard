@@ -21,7 +21,7 @@ curl -H "X-API-Key: $NIDAVELLIR_API_KEY" http://localhost:8000/deployments
 
 Roles: `admin` (manage platform/keys), `operator` (author/run/observe
 engagements), `agent` (the AI under test). Recorded for auditing; per-owner
-enforcement arrives with hardening (ROADMAP Phase 5). Missing or invalid keys
+enforcement is future hosted-product work. Missing or invalid keys
 get `401`. The docker-compose stack bootstraps the key from the
 `NIDAVELLIR_API_KEY` value in `.env` — the default `dev-insecure-key` is for
 the local mock demo only.
@@ -103,6 +103,11 @@ Deploy requests are validated before anything is queued (`422` on failure):
 - `scenario`: must match `^[a-z0-9][a-z0-9_-]{0,63}$` **and** exist in the
   registry (`GET /scenarios`). Names that look like paths are rejected here
   and again inside the worker (defense in depth).
+- `engagement_purpose` is optional for compatibility clients. When present on
+  any deployment request it must be `benchmark`, `discovery`, `calibration`, or
+  `research`. The orchestrator records it once as an append-only
+  `engagement_intent` event with challenge/target source; it does not override
+  scenario, provider, containment, or scoring policy.
 
 ### Scenario Registry
 

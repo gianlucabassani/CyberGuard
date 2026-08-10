@@ -1,144 +1,173 @@
 # Overview
 
-> An **agentic cyber-arena forge**. Point it at a target, let a **bring-your-own AI
-> agent** attack it inside a contained arena over an **MCP gateway**, and get back a
-> **scored, replayable, audited** result. Nidavellir ships **no AI of its own** — the
-> model is always yours; the platform is the safe substrate and the scoring.
+> Nidavellir is a **GUI-driven, bring-your-own-agent cyber evaluation arena for
+> active challenges**. It provisions reproducible targets, gives a human or
+> external agent a contained research position, independently verifies observed
+> effects, and produces scored, replayable, auditable results.
 
-This is the high-level tour. For connecting an agent see [`MCP.md`](./MCP.md); for
-the internals of every subsystem see [`INTERNALS.md`](./INTERNALS.md); for known bugs
-and improvement vectors see [`FINDINGS.md`](./FINDINGS.md).
-
----
-
-## The thesis
-
-Point Nidavellir at **any repo** (or a curated pack), and it will stand the target
-up reliably as real infrastructure, hand it to a **BYO agent** placed as attacker /
-MITM / defender through an MCP gateway, and turn the engagement into a **structured
-score** — including for targets with *no known-vulnerability manifest*, where "the
-agent made it fall over" is first-class evidence.
-
-**The differentiator.** No one else combines all three of:
-
-- a **BYO-agent MCP harness** (the agent is the system-under-test, not ours),
-- **auto-provision-any-OSS** (repo → running service), and
-- **crash-oracle + deterministic-validator scoring** (a result you can trust).
-
-XBOW/Strix are agents (no arena). Cybench/CVE-Bench are fixed target sets (no
-arbitrary-repo provisioning). GOAD/Ludus are ranges (no agent seam or scoring).
-Nidavellir's data-defined engine + gateway + append-only event spine is what makes
-the *combination* cheap.
+Nidavellir ships no autonomous pentesting agent. The participant is the system
+under test; Nidavellir is the environment factory, capability boundary,
+observer, referee, and comparison layer. For agent connection details see
+[`MCP.md`](./MCP.md); for the product boundary see [`VISION.md`](./VISION.md);
+for subsystem internals see
+[`INTERNALS.md`](./INTERNALS.md); for the product sequence see
+[`../ROADMAP.md`](../ROADMAP.md).
 
 ---
 
-## The pipeline
+## What it evaluates
 
-```
-  operator                      Nidavellir control plane                    BYO agent
-  ────────                      ────────────────────────                    ─────────
-                    ┌───────────────────────────────────────────┐
-  point at repo ──▶ │  M1  provision: introspect → build/        │
-  or pick a pack    │      synthesize Dockerfile → run           │──▶ real Docker arena
-                    │      (docker-local: isolated bridge,        │    victim + foothold
-                    │       egress-locked, per-arena network)     │    (contained)
-                    └───────────────────────────────────────────┘
-                                     │ bind agent (key ↔ arena, stance)
-                                     ▼
-   BYO agent ──MCP──▶ agent-gateway ──REST──▶ orchestrator ──▶ exec / findings
-   (Claude Code,       (stance-gated          (FastAPI +          on the arena
-    Anthropic SDK,      tools, traced,         Celery + events)
-    any MCP client)     budgeted)
-                                     │
-                    ┌────────────────┴───────────────────────────┐
-                    │  M2  crash oracle (monitor) + deterministic  │
-                    │      validators + structured Score           │
-                    │  M3  eval-export row + OpenInference trace   │
-                    └──────────────────────────────────────────────┘
-                                     ▼
-   operator ◀────────────  scored, replayable eval dataset row  ────────────
+The unit under test is a **complete agent build**: model, scaffold, prompts,
+tools, memory, policies, budgets, and version together. A model-only score is not
+enough to explain whether an internal security agent improved.
+
+The primary task is an **active challenge**: a real running application or
+topology that responds to participant actions and may move through controlled
+releases. This supports both one-shot offensive agents and continuous agents
+that must notice a new component, avoid retesting unchanged surfaces, close a
+fixed finding, and rediscover a regression.
+
+Public CTF/CVE packs remain useful for calibration. Held-out/private challenges,
+immutable identities, repeated trials, and independent validators are required
+for a defensible comparison.
+
+## Two operator journeys
+
+- **Engagement:** one human or agent researches one challenge or ad-hoc target.
+- **Evaluation:** pinned agent builds run repeated trials over a challenge suite
+  and are compared on verified capability, regressions, latency, cost, and safety.
+
+Both journeys use the same arena, gateway, event, evidence, validation, and
+scoring engine.
+
+## Product model
+
+```text
+Target + Scenario + truth/validators/episode
+                 ↓
+              Challenge ───────────────┐
+                 │                     │
+          Engagement              Evaluation
+                 │            agent builds × suite × trials
+                 │                     │
+                 └──────────┬──────────┘
+                            ↓
+                         Run/Arena
+                            ↓
+             findings · evidence · trace · score
 ```
 
-Three milestones make up the Horizon-1 spine, all shipped:
-
-| | Milestone | What it gives you |
-|---|---|---|
-| **M1** | Reliable *repo → running service* | Point at an arbitrary OSS repo; it builds & runs (honors a shipped Dockerfile, else synthesizes one via a verified-build loop). |
-| **M2** | Monitor + validators + scoring | A crash/sanitizer/5xx oracle, deterministic "perfect verification" of findings, and one machine-parseable `Score` — benchmark *or* discovery mode, with partial credit. |
-| **M3** | Eval layer + reference harness | Every run exports as a Langfuse/Phoenix-ready dataset row; a reference harness plays arenas autonomously and scales across a suite. |
+- A **Target** is an immutable Git object, OCI digest, source bundle, package,
+  or future binary/VM identity.
+- A **Scenario** is the provider-neutral topology specification.
+- A **Challenge** adds participant instructions, visibility, truth/objectives,
+  validators, and an optional staged episode.
+- An **Arena** is temporary live infrastructure; durable engagement/run records
+  and evidence survive its destruction.
 
 ---
 
-## How a run works
+## The engine pipeline
 
-A run is one loop — **deploy → bind → engage → score → export** — which the reference
-harness drives in a single command:
-
-```bash
-python -m harness --api-url http://127.0.0.1:8000 \
-  --operator-key "$OP" --agent-key "$AGENT" \
-  --scenario container_web_pentest \
-  --claude-code --model opus --out dataset.jsonl
+```text
+Operator console
+      │
+      ├── choose/ingest target + challenge
+      ├── review identity, setup, containment and limits
+      ▼
+Orchestrator ──tasks──▶ Worker ──provider──▶ isolated running arena
+      │                                           │
+      │ bind human/agent stance                   │ observed effects
+      ▼                                           ▼
+MCP gateway / external driver              monitor + validators
+      │                                           │
+      └──────── actions/findings/evidence ────────┘
+                            │
+                            ▼
+                  events + trace + Score
+                            │
+                            ▼
+                 run export / comparison
 ```
 
-1. **Deploy** the scenario as real containers (M1).
-2. **Bind** the agent to the arena — server-enforced key↔arena, attacker stance.
-3. **Engage** over MCP: the agent runs recon, `run_command`, and `report_finding`
-   with a reproducible PoC (see [`MCP.md`](./MCP.md)).
-4. **Score** (M2): the crash oracle watches the target while deterministic validators
-   — and an operator confirm/refute — verify each finding.
-5. **Export** (M3): the run projects to a Langfuse/Phoenix-ready eval-dataset row.
+### Provisioning and target identity
 
-You bring the model two ways (see the
-[reference harness](../cyber-range/services/reference-harness/README.md)): **Claude
-Code** on a Pro/Max subscription (no API key — Claude Code *is* the agent over MCP),
-or an **Anthropic / OpenAI-compatible SDK** key for CI and batch suites. Any MCP
-client works — the gateway is the seam, not the model.
+- Scenario schema v3 defines arbitrary nodes and network segments.
+- Docker-local creates per-arena networks and real containers.
+- SUT targets can originate from pinned Git, digest-pinned public OCI images,
+  or bounded local source bundles.
+- Existing Dockerfiles are preferred; verified synthesis and package tiers fill
+  gaps. Setup can be operator-scripted, HITL, or double-locked autonomous.
 
-A scored eval row (discovery mode — no manifest, so a confirmed crash is the evidence):
+### Agent boundary
 
-```json
-{
-  "mode": "discovery",
-  "score": { "value": 1.0, "answer": "1 distinct fault site, 1 confirmed finding",
-             "metadata": { "tier": "complete", "progress_rate": 1.0 } },
-  "metadata": { "gen_ai.request.model": "opus", "nv.stance": "attacker", "attributed": true },
-  "tags": ["mode:discovery", "nidavellir"]
-}
+- Server-enforced key↔arena bindings and stance-scoped MCP tools.
+- Attacker, MITM, defender, and special configurator capabilities.
+- Provider-enforced containment, command limits, and append-only traces.
+- Generic drivers for persistent/container/external agents are planned for the
+  evaluation workbench; product-specific agent logic does not enter Nidavellir.
+
+### Evidence and scoring
+
+- Monitor signals cover crashes, sanitizer aborts, OOM/resource faults, and
+  unhandled 5xx behavior.
+- Deterministic validators prove effects such as observed XSS execution, marker
+  disclosure, OAST callbacks, or correlated crashes.
+- Verdicts are tri-state: confirmed, refuted, or unknown. Only confirmed earns
+  credit; unknown is never silently converted into refuted.
+- Benchmark mode scores against hidden truth. Discovery mode reports confirmed
+  findings and fault sites without pretending that unknowable false negatives
+  are zero.
+- Structured scores, OpenInference-aligned traces, dataset export, and replay
+  are already shipped.
+
+---
+
+## Console direction
+
+The current console grew around implementation increments—Dashboard, Arenas,
+Launch, SUT, Inventory, Logs, and Agents. Before adding suites, trials, and
+comparisons, it is being reorganized around operator intent:
+
+```text
+Home
+Engagements
+Evaluations
+Library → Challenges · Targets · Agents
+Activity → Findings · Evidence · Audit trail
+Administration
 ```
 
----
+Launch and SUT become one contextual New Engagement wizard. The large arena page
+becomes a shared engagement/run workspace:
 
-## Where scoring comes from (why the result is trustworthy)
+```text
+Overview · Live · Target · Findings · Evidence · Changes
+Agent · Trace · Score · Infrastructure
+```
 
-- **Crash oracle (M2).** A monitor sweeps every active arena and turns container
-  faults (non-zero exit, OOM, crash-loop) and log signatures (panics, sanitizer
-  aborts, unhandled 5xx) into deduped `monitor_signal` events. A crash is scored
-  evidence even with no manifest.
-- **Deterministic validators (M2).** A finding is *confirmed* only when
-  programmatically proven — a reflected-XSS nonce executed in the arena browser, a SQLi marker
-  disclosed, an OAST out-of-band callback, or **passive crash correlation** on the
-  finding's node. `confirmed` is tri-state (`true` / `false` / `null`-unknown); only
-  `true` earns credit. The verdict is operator-only (the agent gets a neutral ack).
-- **Structured Score (M2/M3).** An Inspect-style `Score` (typed value + answer +
-  evidence + metadata), a milestone **Progress Rate** that scores even a failed run,
-  and two modes: **benchmark** (CVE-rediscovery vs a manifest) and **discovery** (no
-  manifest → crash-oracle fault sites + confirmed findings).
+The migration preserves existing backend flows and routes until replacements
+reach feature parity. See [ADR-0012](./adr/0012-gui-first-product-model.md).
 
 ---
 
-## Status snapshot
+## Current status
 
-- **Horizon 1 spine complete:** M1, M2 and M3 all shipped — provisioning →
-  crash-oracle scoring → eval export, reference harness, deterministic replay, and
-  the operator verification path. Remaining M3 polish (non-blocking): broader
-  auto-validators, difficulty / guided modes, SSE live feed.
-- **Health:** `make check` clean (ruff + bandit + pytest). ADRs 0001–0005,
-  0007–0010 Accepted; 0006 (AWS) deferred.
-- **Substrate:** `docker-local` is the mature, live provider; OpenStack/AWS/libvirt
-  are Terraform skeletons (deferred, no live apply).
-- **Horizon 2** (agent-grade tooling, regression pipeline, LLM-app targets): not
-  started; gated behind M4 tooling.
-
-See [`../ROADMAP.md`](../ROADMAP.md) for the sequenced plan and
-[`FINDINGS.md`](./FINDINGS.md) for the honest gap list.
+- **Shipped:** dynamic Docker arenas, SUT provisioning, secure target intake,
+  setup gates, monitoring, validators, structured scoring, findings/PoCs,
+  eval export, reference harness, batch execution, replay, Git evidence,
+  file transfer, and target-scoped browser tooling.
+- **Next:** console information architecture, unified engagement creation, and
+  contextual engagement/run workspace.
+- **Then:** HTTP replay/modify, confined PoC sandbox, tunnelling, durable budgets
+  and kill switches; followed by the GUI evaluation workbench.
+- **Evaluation gap:** durable Agent build/Suite/Evaluation/Run/Trial records,
+  active episode schedules, and paired N-vs-N+1 comparison do not exist yet.
+- **Provider boundary:** Docker-local is mature. OpenStack, AWS, and libvirt are
+  validation-level skeletons with no supported live apply.
+- **Security boundary:** this remains a trusted-host/single-team system and is
+  not safe to expose directly to an untrusted network; see
+  [`SECURITY.md`](./SECURITY.md).
+- **Verification:** the declared Python 3.11 container gate records 771 passing
+  tests with Ruff and Bandit clean. Host Python 3.13 currently hangs in
+  Starlette `TestClient` and is not the supported full-test path.

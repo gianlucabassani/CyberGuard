@@ -5,6 +5,11 @@ How every subsystem works, end to end. Companion to [`OVERVIEW.md`](./OVERVIEW.m
 relative to the repo root; the orchestrator service lives at
 `cyber-range/services/scenario-orchestrator/`.
 
+> This document describes the current implementation. The GUI-first product
+> model and future durable Evaluation/Run records are designed in
+> [ADR-0012](./adr/0012-gui-first-product-model.md) and `ROADMAP.md`; they are not
+> presented below as already shipped.
+
 ---
 
 ## 1. Topology of the system
@@ -13,7 +18,7 @@ relative to the repo root; the orchestrator service lives at
 Console (Flask)            Orchestrator (FastAPI)            Worker (Celery)
 cyber-range/webui   ──HTTP──▶  api.py  ──enqueue via Redis──▶  tasks.py
      ▲                          │  │                              │
-     │ 5s poll                  │  │ Database (SQLAlchemy)        │ Orchestrator
+     │ HTTP + 5s poll today     │  │ Database (SQLAlchemy)        │ Orchestrator
      │                          │  └──▶ events / deployments      │   → provider
  BYO agent ──MCP──▶ agent-gateway ──REST──▶ api.py               ▼
  (reference-harness  gateway/server.py                     providers/{mock,
@@ -255,7 +260,9 @@ never on the agent's word.
   scaffold is a first-class field (the METR/AISI/SWE-bench lesson). Unannounced
   agents are flagged `attributed: false`, not guessed.
 - Served operator-only at `GET /arenas/{id}/eval-export`. Event-backed, derived on
-  demand — no `runs` table yet (deferred to M5 if query cost demands it).
+  demand—there are no durable Agent build/Suite/Evaluation/Run/Trial records yet.
+  ROADMAP E1 adds them because paired comparisons require product identity and
+  lifecycle, not merely to optimize query cost.
 
 ---
 
@@ -317,7 +324,7 @@ on the operator's key — the co-pilot, `/scenarios/generate`, Dockerfile synthe
 
 ---
 
-## 15. Request lifecycle (worked example: a benchmark run)
+## 15. Request lifecycle (current single-run engine)
 
 1. Operator `POST /deploy {scenario, instance_id}` → `deploy_lab` (Celery) →
    `docker_local.deploy` builds the arena → status `active`, outputs recorded.
@@ -332,3 +339,30 @@ on the operator's key — the co-pilot, `/scenarios/generate`, Dockerfile synthe
    + metrics into the `Score`; `GET /arenas/{id}/eval-export` emits the dataset row.
 7. Reaper or explicit `DELETE /destroy/{id}` tears the arena down; the event trail
    persists.
+
+---
+
+## 16. Planned product composition (not implemented)
+
+ADR-0012 reorganizes the current pages around Engagements and Evaluations without
+moving business logic into the WebUI. The planned composition is:
+
+```text
+WebUI engagement/evaluation workflow
+              │
+              ▼
+durable product records + scheduler APIs
+  Agent build · Suite · Evaluation · Run · Trial
+              │
+              ▼
+existing deploy/bind/engage/validate/score/export engine
+              │
+              ▼
+contextual workspace + paired comparison
+```
+
+An arena remains the ephemeral live resource. Engagement and Run become the
+durable operator objects that retain evidence after teardown. Generic agent
+drivers manage interactive MCP, container-service, and authorized external
+agents; all findings still pass through Nidavellir's existing evidence and
+validation authority.

@@ -628,7 +628,7 @@
       headers: meta ? { "X-CSRFToken": meta.content } : {},
     })
       .then((r) => {
-        if (r.ok) { window.location.href = "/arenas"; return; }
+        if (r.ok) { window.location.href = "/engagements"; return; }
         return r.json().catch(() => ({})).then((b) => {
           throw new Error(b.error || "Destroy failed (HTTP " + r.status + ")");
         });
@@ -641,15 +641,36 @@
   let copilotBusy = false;
   const currentArena = () => window.NIDAVELLIR_ARENA || null;
 
+  const isCompactNavigation = () => window.innerWidth <= 1000;
+
+  function syncSidebarToggle() {
+    const sidebar = document.getElementById("sidebar");
+    const toggle = document.getElementById("sidebar-toggle");
+    if (!sidebar || !toggle) return;
+    const expanded = isCompactNavigation()
+      ? sidebar.classList.contains("open")
+      : !document.body.classList.contains("nav-collapsed");
+    toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+  }
+
+  function closeSidebar() {
+    const sidebar = document.getElementById("sidebar");
+    if (sidebar) sidebar.classList.remove("open");
+    syncSidebarToggle();
+  }
+
   function toggleSidebar() {
-    // < 960px: off-canvas open/close. Desktop: collapse to an icon-only rail
+    // Compact: off-canvas open/close. Desktop: collapse to an icon-only rail
     // (items stay clickable), persisted across pages.
-    if (window.innerWidth < 960) {
+    if (isCompactNavigation()) {
+      document.body.classList.remove("nav-collapsed");
       document.getElementById("sidebar").classList.toggle("open");
+      syncSidebarToggle();
       return;
     }
     const collapsed = document.body.classList.toggle("nav-collapsed");
     try { localStorage.setItem("nav-collapsed", collapsed ? "1" : "0"); } catch (e) {}
+    syncSidebarToggle();
   }
 
   function toggleCopilot() {
@@ -1672,6 +1693,13 @@
   /* ---- launch page: scenario / custom / import previews --------------- */
   function initScenarioPreview() {
     const selected = (el) => (el ? Array.from(el.selectedOptions).map((o) => o.value) : []);
+    const continueWithImportedChallenge = (scenarioId) => {
+      const params = new URLSearchParams();
+      const purposeInput = document.querySelector('[name="engagement_purpose"]');
+      if (purposeInput && purposeInput.value) params.set("purpose", purposeInput.value);
+      if (scenarioId) params.set("scenario", scenarioId);
+      window.location.href = "/launch" + (params.toString() ? "?" + params.toString() : "");
+    };
 
     // predefined scenario → topology of the registered scenario
     const sel = document.querySelector('select[name="scenario"]');
@@ -1730,7 +1758,7 @@
       if (!spec) return;
       const id = idIn ? idIn.value.trim() : "";
       postJson("/api/scenarios/import", { spec, id: id || null }).then(({ status, data }) => {
-        if (status === 200) { window.location.href = "/scenarios"; }
+        if (status === 200) { continueWithImportedChallenge(data.id || id); }
         else if (iMsg) { iMsg.className = "import-msg err"; iMsg.textContent = "Import failed: " + (data.error || ("HTTP " + status)); }
       });
     });
@@ -1769,7 +1797,7 @@
       if (!b.path) return;
       if (vhId && vhId.value.trim()) b.id = vhId.value.trim();
       postJson("/api/scenarios/import/vulhub", b).then(({ status, data }) => {
-        if (status === 200) { window.location.href = "/scenarios"; }
+        if (status === 200) { continueWithImportedChallenge(data.id || (vhId && vhId.value.trim())); }
         else if (vhMsg) { vhMsg.className = "import-msg err"; vhMsg.textContent = "Import failed: " + (data.error || (data.detail) || ("HTTP " + status)); }
       });
     });
@@ -1847,7 +1875,7 @@
       if (!spec) return;
       const id = genId ? genId.value.trim() : "";
       postJson("/api/scenarios/import", { spec, id: id || null }).then(({ status, data }) => {
-        if (status === 200) { window.location.href = "/scenarios"; }
+        if (status === 200) { continueWithImportedChallenge(data.id || id); }
         else if (genMsg) { genMsg.className = "import-msg err"; genMsg.textContent = "Import failed: " + (data.error || data.detail || ("HTTP " + status)); }
       });
     });
@@ -2057,6 +2085,7 @@
       msg.className = "import-msg"; msg.textContent = "Validating…";
       const body = {
         instance_id: document.getElementById("wiz-name").value.trim() || "wizard-preview",
+        engagement_purpose: (document.querySelector('[name="engagement_purpose"]') || {}).value || null,
         target_type: targetType.value,
         repo: document.getElementById("wiz-repo").value.trim(),
         ref: document.getElementById("wiz-ref").value.trim() || null,
@@ -2075,6 +2104,7 @@
       };
       const bundleName = bundleInput.files.length ? bundleInput.files[0].name : "no archive";
       const recapRows = [
+        ["Purpose", body.engagement_purpose ? body.engagement_purpose.replace(/_/g, " ") : "compatibility path"],
         ["Target", isOci() ? body.image : (isBundle() ? bundleName :
           body.repo + (body.ref ? " @ " + body.ref : ""))],
         ["Platform", isOci() ? body.platform : "provider native"],
@@ -2238,22 +2268,29 @@
     initScenarioPreview, initScenariosBrowser,
     initDashboard, initLogs, initLaunch, initWizard, initInventory, initSettings,
     openModelModal, closeModelModal, openModelConfig, saveModel, removeModel, testModel,
-    toggleSidebar, toggleCopilot, sendCopilot,
+    toggleSidebar, closeSidebar, toggleCopilot, sendCopilot,
     openAgentConfig, closeAgentConfig, revokeAgent, pauseAgent, resumeAgent,
     initEngagement, engDecide, openConfigurator, closeConfigurator,
     initAgents,
     fit: function () { const cy = specCy["topo"]; if (cy) cy.fit(null, 36); },
   };
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { closeModelModal(); closeConfigurator(); }
+    if (e.key === "Escape") {
+      closeModelModal();
+      closeConfigurator();
+      const createMenu = document.getElementById("create-menu");
+      if (createMenu) createMenu.open = false;
+      if (isCompactNavigation()) closeSidebar();
+    }
   });
   document.addEventListener("DOMContentLoaded", function () {
     // Restore the persisted collapsed-sidebar preference (desktop only).
     try {
-      if (localStorage.getItem("nav-collapsed") === "1" && window.innerWidth >= 960) {
+      if (localStorage.getItem("nav-collapsed") === "1" && !isCompactNavigation()) {
         document.body.classList.add("nav-collapsed");
       }
     } catch (e) {}
+    syncSidebarToggle();
     pollHealth();
     buildProviderMenu();
     pollModel();
@@ -2265,6 +2302,23 @@
     document.addEventListener("click", (e) => {
       const sw = e.target.closest(".switch");
       if (sw) sw.classList.toggle("on");
+      const createMenu = document.getElementById("create-menu");
+      if (createMenu && createMenu.open && !createMenu.contains(e.target)) {
+        createMenu.open = false;
+      }
+      const navLink = e.target.closest(".nav-item");
+      if (navLink && isCompactNavigation()) closeSidebar();
+    });
+    window.addEventListener("resize", () => {
+      if (isCompactNavigation()) {
+        document.body.classList.remove("nav-collapsed");
+      } else {
+        document.getElementById("sidebar").classList.remove("open");
+        try {
+          document.body.classList.toggle("nav-collapsed", localStorage.getItem("nav-collapsed") === "1");
+        } catch (e) {}
+      }
+      syncSidebarToggle();
     });
     // Per-page init is invoked from each template's {% block scripts %}.
   });

@@ -20,57 +20,94 @@
       <span class="wordmark">Nidavellir<small>arena forge</small></span>
     </a>
 
-    <nav class="nav">
-      {% set nav = [
-        ('overview',  'overview',  'fa-gauge-high',     'Dashboard'),
-        ('arenas',    'arenas',    'fa-layer-group',    'Arenas'),
-        ('launch',    'launch',    'fa-rocket',         'Launch'),
-        ('wizard',    'wizard',    'fa-flask',          'SUT'),
-        ('scenarios', 'scenarios', 'fa-cubes',          'Inventory'),
-        ('audit',     'audit',     'fa-clock-rotate-left', 'Logs'),
-        ('agents',    'agents',    'fa-robot',          'Agents')
-      ] %}
-      {% for key, ep, icon, label in nav %}
-      <a class="nav-item {{ 'active' if active == key }}" href="{{ url_for(ep) }}">
-        <span class="ico"><i class="fa-solid {{ icon }}"></i></span><span class="nav-label">{{ label }}</span>
+    <nav class="nav" aria-label="Primary navigation">
+      <a class="nav-item {{ 'active' if active == 'overview' }}" href="{{ url_for('overview') }}" {{ 'aria-current="page"' | safe if active == 'overview' }}>
+        <span class="ico"><i class="fa-solid fa-house"></i></span><span class="nav-label">Home</span>
       </a>
-      {% endfor %}
 
-      <div class="nav-section">Account</div>
-      {% set account = [
-        ('settings', 'settings', 'fa-gear',  'Settings'),
-        ('profile',  'profile',  'fa-user',  'Profile')
+      {% set nav_groups = [
+        ('engagements', 'fa-crosshairs', ['arenas', 'engagement_new', 'launch', 'wizard'], [
+          ('arenas', 'engagements', 'fa-layer-group', 'Engagements', ''),
+          ('engagement_new', 'new_engagement', 'fa-plus', 'New engagement', '')
+        ]),
+        ('evaluations', 'fa-chart-column', ['evaluations'], [
+          ('evaluations', 'evaluations', 'fa-chart-column', 'Overview', 'foundation')
+        ]),
+        ('library', 'fa-book-open', ['scenarios', 'targets', 'agent_library'], [
+          ('scenarios', 'challenge_library', 'fa-cubes', 'Challenges', ''),
+          ('targets', 'target_library', 'fa-bullseye', 'Targets', 'foundation'),
+          ('agent_library', 'agent_library', 'fa-robot', 'Agents', 'foundation')
+        ]),
+        ('activity', 'fa-wave-square', ['findings', 'evidence', 'agents', 'audit'], [
+          ('findings', 'findings_index', 'fa-bug', 'Findings', 'foundation'),
+          ('evidence', 'evidence_index', 'fa-box-archive', 'Evidence', 'foundation'),
+          ('agents', 'agent_activity', 'fa-satellite-dish', 'Agent activity', ''),
+          ('audit', 'audit_trail', 'fa-clock-rotate-left', 'Audit trail', '')
+        ]),
+        ('administration', 'fa-sliders', ['providers', 'security', 'settings'], [
+          ('providers', 'providers_capacity', 'fa-server', 'Providers & capacity', 'foundation'),
+          ('security', 'security', 'fa-shield-halved', 'Security', 'foundation'),
+          ('settings', 'administration_settings', 'fa-gear', 'Settings', '')
+        ])
       ] %}
-      {% for key, ep, icon, label in account %}
-      <a class="nav-item {{ 'active' if active == key }}" href="{{ url_for(ep) }}">
-        <span class="ico"><i class="fa-solid {{ icon }}"></i></span><span class="nav-label">{{ label }}</span>
-      </a>
+      {% for group, icon, active_keys, items in nav_groups %}
+      <details class="nav-group" {{ 'open' if active in active_keys }}>
+        <summary class="nav-group__summary">
+          <span class="ico"><i class="fa-solid {{ icon }}"></i></span>
+          <span class="nav-label">{{ group | title }}</span>
+          <i class="fa-solid fa-chevron-down nav-group__chevron"></i>
+        </summary>
+        <div class="nav-group__items">
+          {% for key, ep, item_icon, label, tag in items %}
+          <a class="nav-item nav-item--child {{ 'active' if active == key }}" href="{{ url_for(ep) }}" {{ 'aria-current="page"' | safe if active == key }}>
+            <span class="ico"><i class="fa-solid {{ item_icon }}"></i></span>
+            <span class="nav-label">{{ label }}</span>
+            {% if tag %}<span class="tag">{{ tag }}</span>{% endif %}
+          </a>
+          {% endfor %}
+        </div>
+      </details>
       {% endfor %}
     </nav>
 
     <div class="sidebar-foot">
       <div class="userbox">
-        <span class="avatar">{{ (session.get('username') or 'op')[0] | upper }}</span>
+        <a class="avatar" href="{{ url_for('profile') }}" title="Open profile">{{ (session.get('username') or 'op')[0] | upper }}</a>
         <div class="grow">
-          <div class="who">{{ session.get('username', 'operator') }}</div>
+          <a class="who" href="{{ url_for('profile') }}">{{ session.get('username', 'operator') }}</a>
           <div class="role">operator</div>
         </div>
         <form method="POST" action="{{ url_for('logout') }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-ghost btn-sm" title="Log out"><i class="fa-solid fa-right-from-bracket"></i></button>
+          <button class="btn btn-ghost btn-sm" title="Log out" aria-label="Log out"><i class="fa-solid fa-right-from-bracket"></i></button>
         </form>
       </div>
     </div>
   </aside>
+  <button class="sidebar-scrim" id="sidebar-scrim" type="button" aria-label="Close navigation" onclick="Nidavellir.closeSidebar()"></button>
 
   <!-- main -->
   <div class="main">
     <header class="topbar">
-      <button class="btn btn-ghost btn-sm menu-btn" onclick="Nidavellir.toggleSidebar()" title="Collapse / expand sidebar">
+      <button class="btn btn-ghost btn-sm menu-btn" id="sidebar-toggle" type="button"
+              aria-controls="sidebar" aria-expanded="true"
+              onclick="Nidavellir.toggleSidebar()" title="Collapse / expand navigation">
         <i class="fa-solid fa-bars"></i>
       </button>
       <div class="crumb"><span class="sep">Nidavellir</span> <span class="sep">/</span> <b>{% block crumb %}{% endblock %}</b></div>
       <div class="spacer"></div>
+      <details class="create-menu" id="create-menu">
+        <summary class="btn btn-primary btn-sm"><i class="fa-solid fa-plus"></i> <span class="create-label">Create</span></summary>
+        <div class="create-menu__panel">
+          <div class="create-menu__head">Create</div>
+          <a href="{{ url_for('new_engagement') }}">
+            <span class="create-menu__icon"><i class="fa-solid fa-crosshairs"></i></span>
+            <span><strong>New engagement</strong><small>Choose purpose, source, configuration, and safety policy</small></span>
+          </a>
+          <div class="create-menu__divider"></div>
+          <span class="create-menu__planned"><span>Evaluation, challenge, and agent</span><small>Available in later roadmap increments</small></span>
+        </div>
+      </details>
       <button class="iconbtn hide-sm" id="copilot-toggle" type="button"
               title="Co-pilot — chat with your connected model about this arena"
               onclick="Nidavellir.toggleCopilot()">
@@ -101,7 +138,7 @@
           <div class="flash flash--{{ category }}">
             <i class="fa-solid {{ 'fa-circle-exclamation' if category in ('danger','warning') else 'fa-circle-info' }}"></i>
             <span>{{ message }}</span>
-            <button class="x" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
+            <button class="x" type="button" aria-label="Dismiss notification" onclick="this.parentElement.remove()"><i class="fa-solid fa-xmark"></i></button>
           </div>
           {% endfor %}
         {% endwith %}

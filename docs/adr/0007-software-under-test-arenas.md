@@ -116,11 +116,11 @@ still bring-your-own AI under the operator's key, exercising a capability
 Nidavellir *provides and gates*. Nidavellir ships the provisioner, the sandbox
 (egress lockdown), the monitor, and the consent gate — never the AI.
 
-The **arena wizard and monitor UI live in the current console, which is a temporary
-surface.** The planned console rework (ROADMAP Phase 7) must be modular and modern
-and keep a **persistent communication link with whatever model is connected** (the
-connected-model chip is the seed of this) — while the **human-only path must keep
-working with no model link at all**.
+The **arena wizard and monitor UI live in the current console, which is a
+transitional surface.** ADR-0012 and ROADMAP C1–C4 move SUT creation into the
+unified New Engagement journey and runtime state into the contextual
+engagement/run workspace. The **human-only path must keep working with no model
+link at all**.
 
 ## Alternatives considered
 
@@ -167,6 +167,6 @@ working with no model link at all**.
   capability + white-box source access (P2-10); the arena wizard (P3-3) and its
   console UI + monitor panel (P7-6); monitoring/crash-oracle + evidence/CVE scoring
   (P4-6/P4-7). The curated-catalog + **VulnHub auto-converter (P1-5)** is a separate,
-  still-needed track. The **Phase-7 console rework** must be modular/modern, keep a
-  **live model-comms link**, and never break the **no-AI human path**. Accept this
+  still-needed track. The **ADR-0012 console migration** must preserve feature
+  parity and never break the **no-AI human path**. Accept this
   ADR when the provisioner + wizard land with a first OSS target end-to-end.

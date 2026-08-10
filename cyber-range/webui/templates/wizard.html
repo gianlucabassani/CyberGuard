@@ -1,13 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Software-Under-Test Wizard{% endblock %}
-{% block crumb %}SUT{% endblock %}
+{% block title %}New engagement from target{% endblock %}
+{% block crumb %}Engagements <span class="sep">/</span> New from target{% endblock %}
 {% block head %}<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>{% endblock %}
 
 {% block content %}
+{% include "_engagement_context.html" %}
 <div class="page-head">
   <div>
     <div class="eyebrow">Research</div>
-    <h1>Software-Under-Test Wizard</h1>
+    <h1>New engagement from target</h1>
     <div class="sub">Bring an authorized Git repository or public OCI image up as an immutable software-under-test arena, review its provenance and topology, then launch it in isolation.</div>
   </div>
 </div>
@@ -41,6 +42,7 @@
 
 <form method="POST" action="{{ url_for('build_sut') }}" id="wiz-form" enctype="multipart/form-data">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if engagement_purpose %}<input type="hidden" name="engagement_purpose" value="{{ engagement_purpose.id }}">{% endif %}
 
   <!-- STEP 1: TARGET -->
   <section class="wiz-panel" data-step="1">
@@ -177,7 +179,7 @@
     <div class="grid" style="grid-template-columns:1fr 1fr; align-items:start; gap:18px">
       <div class="card card-pad">
         <h3 style="font-size:15px; margin-bottom:4px">Review</h3>
-        <p class="help" style="margin-bottom:14px">The planned arena, validated without deploying. Launch provisions it and opens the setup session automatically.</p>
+        <p class="help" style="margin-bottom:14px">The planned arena, validated without deploying. Launching the engagement provisions it and opens the setup session automatically.</p>
         <div class="import-msg" id="wiz-msg" style="margin-bottom:12px"></div>
         <dl class="wiz-recap" id="wiz-recap"></dl>
       </div>
@@ -197,7 +199,7 @@
     <button type="button" class="btn" id="wiz-back" hidden><i class="fa-solid fa-arrow-left"></i> Back</button>
     <span class="grow"></span>
     <button type="button" class="btn btn-primary" id="wiz-next">Next <i class="fa-solid fa-arrow-right"></i></button>
-    <button type="submit" class="btn btn-primary" id="wiz-launch" hidden><i class="fa-solid fa-rocket"></i> Launch arena</button>
+    <button type="submit" class="btn btn-primary" id="wiz-launch" hidden><i class="fa-solid fa-rocket"></i> Launch engagement</button>
   </div>
 </form>
 {% endblock %}

@@ -1,20 +1,20 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
-{% block title %}Arenas{% endblock %}
-{% block crumb %}<b>Arenas</b>{% endblock %}
+{% block title %}Engagements{% endblock %}
+{% block crumb %}Engagements{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Arenas</h1>
-    <div class="sub">Running and recent arena deployments.</div>
+    <h1>Engagements</h1>
+    <div class="sub">Active and historical security exercises. Each engagement is currently backed by one arena.</div>
   </div>
   <div class="actions">
-    <a href="{{ url_for('launch') }}" class="btn btn-primary"><i class="fa-solid fa-rocket"></i> Launch arena</a>
+    <a href="{{ url_for('new_engagement') }}" class="btn btn-primary"><i class="fa-solid fa-plus"></i> New engagement</a>
   </div>
 </div>
 
-<div class="card pad-0" style="margin-bottom:18px">
+<div class="card pad-0" id="active" style="margin-bottom:18px">
   {% if current %}
   <div class="rows">
     {% for id, info in current.items() %}
@@ -44,13 +44,13 @@
   </div>
   {% else %}
   <div class="empty"><div class="ico"><i class="fa-solid fa-ghost"></i></div>
-    No active arenas. <a href="{{ url_for('launch') }}" style="color:var(--accent)">Launch one →</a>
+    No active engagements. <a href="{{ url_for('new_engagement') }}" style="color:var(--accent)">Create one →</a>
   </div>
   {% endif %}
 </div>
 
 {% if archived %}
-<div class="card pad-0">
+<div class="card pad-0" id="history">
   <div class="card-head">
     <h3>Archive <span class="muted" style="font-weight:400">· {{ archived|length }} destroyed</span></h3>
     <div class="spacer"></div>

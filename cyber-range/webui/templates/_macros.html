@@ -26,7 +26,7 @@
                'record_deleted':'idle','failed':'danger','agent_session':'accent',
                'setup_session':'info','setup_step':'accent','setup_proposal':'warn',
                'setup_proposal_decision':'info','setup_finished':'idle','finding':'ok',
-               'deploy_failed':'danger'} -%}
+               'deploy_failed':'danger','engagement_intent':'accent'} -%}
   <span class="badge badge--{{ m.get(type, 'idle') }}">{{ (type or '?') | replace('_',' ') }}</span>
 {% endmacro %}
 
@@ -40,6 +40,8 @@
     <span class="mono">{{ p.get('from','?') }} → {{ p.get('to', p.get('status','?')) }}</span>
   {%- elif e.type == 'agent_session' -%}
     <span class="mono">{{ p.model }}</span> · {{ p.provider }}{% if p.stance %} · {{ p.stance }}{% endif %}
+  {%- elif e.type == 'engagement_intent' -%}
+    <b>{{ p.purpose | replace('_', ' ') }}</b> · {{ p.source }}
   {%- elif e.type == 'setup_step' -%}
     <span class="mono faint">{{ p.node }}</span> · exit {{ p.exit_code }} ·
     <span class="mono">{{ (p.command or '') | truncate(70) }}</span>

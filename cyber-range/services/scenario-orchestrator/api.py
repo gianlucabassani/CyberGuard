@@ -110,9 +110,51 @@ def health():
 # names — keep them to a safe slug. Scenario ids are additionally checked
 # against the registry, which is also the path-traversal boundary.
 INSTANCE_NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,39}$"
+ENGAGEMENT_PURPOSES = frozenset({"benchmark", "discovery", "calibration", "research"})
 
 
-class DeployRequest(BaseModel):
+class EngagementIntentRequest(BaseModel):
+    """Optional GUI intent shared by every deployment request.
+
+    Compatibility clients may omit it. When present, the API validates and
+    records it as immutable audit context; it does not override scenario or
+    provider policy.
+    """
+
+    engagement_purpose: str | None = Field(default=None, max_length=32)
+
+    @field_validator("engagement_purpose")
+    @classmethod
+    def engagement_purpose_must_be_known(cls, value: str | None) -> str | None:
+        if value is not None and value not in ENGAGEMENT_PURPOSES:
+            raise ValueError(
+                "engagement_purpose must be benchmark, discovery, calibration, or research"
+            )
+        return value
+
+
+def _record_engagement_intent(
+    instance_id: str,
+    request_model: EngagementIntentRequest,
+    principal: Principal,
+    *,
+    source: str,
+) -> None:
+    if request_model.engagement_purpose is None:
+        return
+    db.record_event(
+        instance_id,
+        "engagement_intent",
+        {
+            "schema": "nidavellir.engagement-intent/v1",
+            "purpose": request_model.engagement_purpose,
+            "source": source,
+        },
+        actor=principal.name,
+    )
+
+
+class DeployRequest(EngagementIntentRequest):
     scenario: str = Field(min_length=1, max_length=64)
     instance_id: str = Field(  # the user's friendly name, not the system UUID
         pattern=INSTANCE_NAME_PATTERN,
@@ -169,7 +211,7 @@ def _check_provider_compatibility(scenario_id: str, provider_name: str | None):
         )
 
 
-class CustomArenaRequest(BaseModel):
+class CustomArenaRequest(EngagementIntentRequest):
     """Build a custom arena from curated catalog picks (manual scenario creator).
 
     Supports **multiple attack machines** (P1-7): pass ``attackers`` (a list); the
@@ -658,6 +700,7 @@ def deploy_custom_arena(
         system_id, req.instance_id, label,
         provider=req.provider, actor=principal.name, expires_at=expires_at,
     )
+    _record_engagement_intent(system_id, req, principal, source="challenge")
     _autobind_deployer(principal, system_id)  # D1: the deployer owns its sandbox
     logger.info(
         f"Queuing custom arena '{req.instance_id}' ({system_id}): "
@@ -686,7 +729,7 @@ _GIT_URL_RE = re.compile(r"^https://[A-Za-z0-9._~%-]+(?::\d+)?/[A-Za-z0-9._~:@!$
 _GIT_REF_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 
-class SutArenaRequest(BaseModel):
+class SutArenaRequest(EngagementIntentRequest):
     instance_id: str = Field(pattern=INSTANCE_NAME_PATTERN)
     repo: str = Field(min_length=8, max_length=400)
     ref: str | None = Field(default=None, max_length=120)
@@ -881,6 +924,7 @@ def deploy_sut_arena(
         system_id, req.instance_id, label,
         provider=req.provider, actor=principal.name, expires_at=expires_at,
     )
+    _record_engagement_intent(system_id, req, principal, source="target")
 
     target_manifest = research_session.git_target_manifest(
         repo=req.repo,
@@ -928,7 +972,7 @@ def deploy_sut_arena(
     }
 
 
-class OciArenaRequest(BaseModel):
+class OciArenaRequest(EngagementIntentRequest):
     instance_id: str = Field(pattern=INSTANCE_NAME_PATTERN)
     image: str = Field(min_length=1, max_length=500)
     ports: list[int] = Field(default_factory=list, max_length=8)
@@ -1097,6 +1141,7 @@ def deploy_oci_arena(
         actor=principal.name,
         expires_at=expires_at,
     )
+    _record_engagement_intent(system_id, req, principal, source="target")
     manifest = research_session.oci_target_manifest(
         requested_image=req.image,
         runtime_ref=target["runtime_ref"],
@@ -1184,7 +1229,7 @@ def upload_source_bundle(
     return {"status": "accepted", "artifact": artifact}
 
 
-class SourceBundleArenaRequest(BaseModel):
+class SourceBundleArenaRequest(EngagementIntentRequest):
     instance_id: str = Field(pattern=INSTANCE_NAME_PATTERN)
     artifact_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     ports: list[int] = Field(default_factory=list, max_length=8)
@@ -1350,6 +1395,7 @@ def deploy_source_bundle_arena(
         actor=principal.name,
         expires_at=expires_at,
     )
+    _record_engagement_intent(system_id, req, principal, source="target")
     manifest = research_session.source_bundle_target_manifest(
         artifact=artifact,
         authorization_basis=req.authorization_basis,
@@ -1568,6 +1614,7 @@ def deploy(
         actor=principal.name,
         expires_at=expires_at,
     )
+    _record_engagement_intent(system_id, req, principal, source="challenge")
     _autobind_deployer(principal, system_id)  # D1: the deployer owns its sandbox
 
     # 4. Dispatch Async Task using the UUID

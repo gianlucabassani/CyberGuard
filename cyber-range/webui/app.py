@@ -503,6 +503,68 @@ def arenas():
     return render_template("arenas.html", active="arenas", current=current, archived=archived)
 
 
+@app.route("/engagements")
+def engagements():
+    """Target-language alias while the arena list remains the backing view."""
+    return arenas()
+
+
+_ENGAGEMENT_PURPOSES = (
+    {
+        "id": "benchmark",
+        "label": "Benchmark",
+        "icon": "fa-chart-line",
+        "description": "Measure an agent or workflow against known objectives.",
+    },
+    {
+        "id": "discovery",
+        "label": "Discovery",
+        "icon": "fa-magnifying-glass",
+        "description": "Find unknown weaknesses or regressions in a target.",
+    },
+    {
+        "id": "calibration",
+        "label": "Calibration",
+        "icon": "fa-sliders",
+        "description": "Validate tools, policies, containment, and scoring behavior.",
+    },
+    {
+        "id": "research",
+        "label": "Manual research",
+        "icon": "fa-flask",
+        "description": "Run an operator-led investigation without comparison semantics.",
+    },
+)
+_ENGAGEMENT_PURPOSE_BY_ID = {item["id"]: item for item in _ENGAGEMENT_PURPOSES}
+_ENGAGEMENT_SOURCES = {"challenge", "target"}
+
+
+def _engagement_purpose(value):
+    return _ENGAGEMENT_PURPOSE_BY_ID.get(value)
+
+
+@app.route("/engagements/new", methods=["GET", "POST"])
+def new_engagement():
+    """Choose engagement intent and source before entering an existing builder."""
+    selected_purpose = request.values.get("purpose", "")
+    selected_source = request.values.get("source", "")
+    if request.method == "POST":
+        if selected_purpose not in _ENGAGEMENT_PURPOSE_BY_ID:
+            flash("Choose the engagement purpose.", "warning")
+        elif selected_source not in _ENGAGEMENT_SOURCES:
+            flash("Choose a challenge or target source.", "warning")
+        else:
+            endpoint = "launch" if selected_source == "challenge" else "wizard"
+            return redirect(url_for(endpoint, purpose=selected_purpose))
+    return render_template(
+        "engagement_new.html",
+        active="engagement_new",
+        purposes=_ENGAGEMENT_PURPOSES,
+        selected_purpose=selected_purpose,
+        selected_source=selected_source,
+    )
+
+
 @app.route("/launch")
 def launch():
     _, attackers, victims = _catalog()
@@ -511,14 +573,22 @@ def launch():
     # Compatible scenarios first, so the (auto-selected) first option is runnable.
     scenarios.sort(key=lambda s: default_infra not in ("any", s.get("provider_class")))
     return render_template("launch.html", active="launch", scenarios=scenarios,
-                           attackers=attackers, victims=victims, default_infra=default_infra)
+                           attackers=attackers, victims=victims, default_infra=default_infra,
+                           engagement_purpose=_engagement_purpose(request.args.get("purpose")),
+                           engagement_source="Challenge",
+                           selected_scenario=request.args.get("scenario", ""))
 
 
 @app.route("/wizard")
 def wizard():
     """Guided arena authoring (P3-3): a step-by-step SUT flow — target → setup
     consent → review (no-deploy topology) → launch."""
-    return render_template("wizard.html", active="wizard")
+    return render_template(
+        "wizard.html",
+        active="wizard",
+        engagement_purpose=_engagement_purpose(request.args.get("purpose")),
+        engagement_source="Target",
+    )
 
 
 @app.route("/api/arenas/sut/preview", methods=["POST"])
@@ -528,6 +598,7 @@ def sut_preview_proxy():
     target_type = body.get("target_type") or "git"
     payload = {
         "instance_id": (body.get("instance_id") or "wizard-preview").strip() or "wizard-preview",
+        "engagement_purpose": body.get("engagement_purpose") or None,
         "ports": body.get("ports") or [],
         "include_attacker": bool(body.get("include_attacker", True)),
         "authorization_basis": body.get("authorization_basis") or "public_oss",
@@ -590,14 +661,28 @@ def scenarios():
                            scenarios=_scenarios(), attackers=attackers, victims=victims)
 
 
+@app.route("/library/challenges")
+def challenge_library():
+    """Target-language alias for the current scenario catalog."""
+    return scenarios()
+
+
 @app.route("/arena/<instance_id>")
 def arena_detail(instance_id):
     data, ok = _api_get(f"/status/{instance_id}")
     if not ok or data is None:
         flash(f"Arena {instance_id} not found.", "warning")
-        return redirect(url_for("arenas"))
+        return redirect(url_for("engagements"))
     outputs = data.get("outputs", {}) or {}
     events = _events(instance_id, limit=30)
+    engagement_intent = next(
+        (
+            event.get("payload") or {}
+            for event in events
+            if event.get("type") == "engagement_intent"
+        ),
+        None,
+    )
     scenario = data.get("scenario", "") or ""
     # A "configurable" (software-under-test) arena is one whose victim must be
     # brought up before the engagement — the wizard (`sut:<repo>`), a clone/source
@@ -620,6 +705,7 @@ def arena_detail(instance_id):
         unhealthy=outputs.get("unhealthy_nodes"),
         provider=outputs.get("provider") or data.get("provider"),
         events=events,
+        engagement_intent=engagement_intent,
         score=_score(instance_id),
         findings=_findings(instance_id),
         setup_steps=_setup_steps(instance_id),
@@ -634,15 +720,140 @@ def agents():
     return render_template("agents.html", active="agents", overview=_agent_overview())
 
 
+@app.route("/activity/agents")
+def agent_activity():
+    """Target-language alias for live agent attribution and connections."""
+    return agents()
+
+
 @app.route("/audit")
 def audit():
     return render_template("audit.html", active="audit",
                            events=_annotate_source(_events(limit=150)))
 
 
+@app.route("/activity/audit")
+def audit_trail():
+    """Target-language alias for the append-only audit view."""
+    return audit()
+
+
 @app.route("/settings")
 def settings():
     return render_template("settings.html", active="settings")
+
+
+@app.route("/administration/settings")
+def administration_settings():
+    """Target-language alias for the current console settings."""
+    return settings()
+
+
+_FOUNDATION_PAGES = {
+    "evaluations": {
+        "group": "Evaluations",
+        "title": "Evaluation workbench",
+        "icon": "fa-chart-column",
+        "description": "Suites, repeated runs, and baseline-versus-candidate comparisons will live here.",
+        "current": "The scoring engine works per arena today; durable experiments and paired comparisons are the next benchmark layer.",
+        "link_endpoint": "engagements",
+        "link_label": "View current engagements",
+    },
+    "targets": {
+        "group": "Library",
+        "title": "Targets",
+        "icon": "fa-bullseye",
+        "description": "Reusable Git, OCI, and source-bundle identities will live here.",
+        "current": "Target intake is available now when creating a target-based engagement.",
+        "link_endpoint": "new_engagement",
+        "link_label": "Create from a target",
+    },
+    "agent_library": {
+        "group": "Library",
+        "title": "Agents",
+        "icon": "fa-robot",
+        "description": "Versioned agent builds, adapters, capabilities, and execution policy will live here.",
+        "current": "Live connections and attribution remain available in Activity until the build registry is implemented.",
+        "link_endpoint": "agent_activity",
+        "link_label": "Open agent activity",
+    },
+    "findings": {
+        "group": "Activity",
+        "title": "Findings",
+        "icon": "fa-bug",
+        "description": "A cross-engagement index of submitted, verified, and rejected findings will live here.",
+        "current": "Findings are currently available inside each engagement workspace.",
+        "link_endpoint": "engagements",
+        "link_label": "Choose an engagement",
+    },
+    "evidence": {
+        "group": "Activity",
+        "title": "Evidence",
+        "icon": "fa-box-archive",
+        "description": "Artifacts, traces, and change observations will be searchable here.",
+        "current": "Evidence remains attached to its engagement today so provenance is preserved.",
+        "link_endpoint": "engagements",
+        "link_label": "Choose an engagement",
+    },
+    "providers": {
+        "group": "Administration",
+        "title": "Providers & capacity",
+        "icon": "fa-server",
+        "description": "Provider health, capacity, quotas, and placement policy will be managed here.",
+        "current": "Current host capacity and orchestrator health remain visible on Home.",
+        "link_endpoint": "overview",
+        "link_label": "Open Home",
+    },
+    "security": {
+        "group": "Administration",
+        "title": "Security",
+        "icon": "fa-shield-halved",
+        "description": "Ownership, roles, credentials, and containment policy will be managed here.",
+        "current": "The current access posture and model connection are documented in Settings.",
+        "link_endpoint": "administration_settings",
+        "link_label": "Open Settings",
+    },
+}
+
+
+def _foundation_page(page_key):
+    page = _FOUNDATION_PAGES[page_key]
+    return render_template("foundation.html", active=page_key, page=page)
+
+
+@app.route("/evaluations")
+def evaluations():
+    return _foundation_page("evaluations")
+
+
+@app.route("/library/targets")
+def target_library():
+    return _foundation_page("targets")
+
+
+@app.route("/library/agents")
+def agent_library():
+    return _foundation_page("agent_library")
+
+
+@app.route("/activity/findings")
+def findings_index():
+    return _foundation_page("findings")
+
+
+@app.route("/activity/evidence")
+def evidence_index():
+    return _foundation_page("evidence")
+
+
+@app.route("/administration/providers")
+def providers_capacity():
+    return _foundation_page("providers")
+
+
+@app.route("/administration/security")
+def security():
+    return _foundation_page("security")
 
 
 @app.route("/profile")
@@ -664,6 +875,7 @@ def create_lab():
         resp = requests.post(f"{API_URL}/deploy", json={
             "scenario": request.form.get("scenario"),
             "instance_id": request.form.get("instance_id"),
+            "engagement_purpose": request.form.get("engagement_purpose") or None,
         }, headers=API_HEADERS, timeout=5)
         if resp.status_code == 422:
             try:
@@ -677,7 +889,7 @@ def create_lab():
             flash(f"Launching '{request.form.get('instance_id')}'…", "info")
     except requests.RequestException as e:
         flash(f"Deploy failed: {e}", "danger")
-    return redirect(url_for("arenas"))
+    return redirect(url_for("engagements"))
 
 
 @app.route("/build-custom", methods=["POST"])
@@ -692,6 +904,7 @@ def build_custom():
     try:
         resp = requests.post(f"{API_URL}/arenas/custom", json={
             "instance_id": instance_id, "attackers": attackers, "victims": victims,
+            "engagement_purpose": request.form.get("engagement_purpose") or None,
         }, headers=API_HEADERS, timeout=10)
         if resp.status_code == 200:
             flash(f"Building '{instance_id}': {' + '.join(attackers)} vs "
@@ -708,17 +921,23 @@ def build_custom():
             flash(f"Build failed (HTTP {resp.status_code})", "danger")
     except requests.RequestException as e:
         flash(f"Build failed: {e}", "danger")
-    return redirect(url_for("arenas"))
+    return redirect(url_for("engagements"))
 
 
 @app.route("/build-sut", methods=["POST"])
 def build_sut():
     """Launch a Git checkout or immutable OCI software-under-test arena."""
     f = request.form
+    engagement_purpose = f.get("engagement_purpose", "")
+    wizard_url = url_for(
+        "wizard",
+        **({"purpose": engagement_purpose} if _engagement_purpose(engagement_purpose) else {}),
+    )
     target_type = f.get("target_type", "git")
     ports = [int(p) for p in re.findall(r"\d+", f.get("ports", ""))][:8]
     payload = {
         "instance_id": f.get("instance_id"),
+        "engagement_purpose": engagement_purpose or None,
         "ports": ports,
         "include_attacker": f.get("include_attacker") == "on",
         "authorization_basis": f.get("authorization_basis", "public_oss"),
@@ -736,7 +955,7 @@ def build_sut():
             upload = request.files.get("file")
             if upload is None or not upload.filename:
                 flash("Source-bundle launch rejected: select an archive.", "warning")
-                return redirect(url_for("wizard"))
+                return redirect(wizard_url)
             try:
                 intake_response = requests.post(
                     f"{API_URL}/targets/source-bundles",
@@ -752,13 +971,13 @@ def build_sut():
                 )
             except requests.RequestException as exc:
                 flash(f"Source-bundle upload failed: {exc}", "danger")
-                return redirect(url_for("wizard"))
+                return redirect(wizard_url)
             if intake_response.status_code != 200:
                 flash(
                     f"Source-bundle upload rejected: {_api_error(intake_response)}",
                     "warning",
                 )
-                return redirect(url_for("wizard"))
+                return redirect(wizard_url)
             artifact_digest = intake_response.json()["artifact"]["digest"]
         payload["artifact_digest"] = artifact_digest
         payload["setup_mode"] = f.get("setup_mode", "operator")
@@ -803,7 +1022,7 @@ def build_sut():
             flash(f"SUT launch rejected: {_api_error(resp)}", "warning")
     except requests.RequestException as e:
         flash(f"SUT launch failed: {e}", "danger")
-    return redirect(url_for("arenas"))
+    return redirect(url_for("engagements"))
 
 
 def _request_destroy(instance_id):
@@ -832,7 +1051,7 @@ def destroy_lab(instance_id):
 def destroy_lab_form(instance_id):
     ok, message = _request_destroy(instance_id)
     flash(message, "info" if ok else "danger")
-    return redirect(url_for("arenas"))
+    return redirect(url_for("engagements"))
 
 
 @app.route("/archive/delete/<instance_id>", methods=["POST"])
@@ -847,7 +1066,7 @@ def archive_delete(instance_id):
             flash(detail or f"Delete failed (HTTP {resp.status_code})", "danger")
     except requests.RequestException:
         flash("Backend offline", "danger")
-    return redirect(url_for("arenas"))
+    return redirect(url_for("engagements"))
 
 
 @app.route("/archive/clear", methods=["POST"])
@@ -860,7 +1079,7 @@ def archive_clear():
             flash(f"Clear failed (HTTP {resp.status_code})", "danger")
     except requests.RequestException:
         flash("Backend offline", "danger")
-    return redirect(url_for("arenas"))
+    return redirect(url_for("engagements"))
 
 
 @app.route("/api/health")

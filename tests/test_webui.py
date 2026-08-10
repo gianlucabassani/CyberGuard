@@ -59,6 +59,172 @@ def test_login_with_token_and_valid_credentials(client):
     assert client.get("/").status_code == 200  # session established
 
 
+def test_application_shell_groups_navigation_and_global_create(client):
+    _login(client)
+    html = client.get("/").data.decode()
+    nav = html.split('<nav class="nav" aria-label="Primary navigation">', 1)[1]
+    nav = nav.split("</nav>", 1)[0]
+
+    for label in (
+        "Home", "Engagements", "Evaluations", "Library", "Activity",
+        "Administration", "Challenges", "Agent activity", "Audit trail",
+    ):
+        assert label in nav
+    assert ">Launch<" not in nav
+    assert ">SUT<" not in nav
+
+    assert 'id="create-menu"' in html
+    assert 'href="/engagements/new"' in html and "New engagement" in html
+    assert 'href="/launch"' not in nav and 'href="/wizard"' not in nav
+    assert 'id="sidebar-toggle"' in html
+    assert 'aria-controls="sidebar"' in html
+    assert 'id="sidebar-scrim"' in html and 'aria-label="Close navigation"' in html
+    assert html.count('aria-current="page"') == 1
+
+
+def test_new_engagement_entry_renders_purpose_and_source_choices(client):
+    _login(client)
+    html = client.get("/engagements/new").data.decode()
+    assert 'id="engagement-entry-form"' in html
+    for purpose in ("Benchmark", "Discovery", "Calibration", "Manual research"):
+        assert purpose in html
+    assert 'name="source" value="challenge"' in html
+    assert 'name="source" value="target"' in html
+    assert html.count('aria-current="page"') == 1
+
+
+def test_new_engagement_entry_requires_csrf(client):
+    _login(client)
+    response = client.post(
+        "/engagements/new", data={"purpose": "benchmark", "source": "challenge"}
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_path"),
+    [("challenge", "/launch"), ("target", "/wizard")],
+)
+def test_new_engagement_hands_off_to_existing_builder(client, source, expected_path):
+    _login(client)
+    token = _csrf_token(client, "/engagements/new")
+    response = client.post(
+        "/engagements/new",
+        data={"purpose": "benchmark", "source": source, "csrf_token": token},
+    )
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith(
+        f"{expected_path}?purpose=benchmark"
+    )
+
+
+def test_new_engagement_rejects_unknown_navigation_values(client):
+    _login(client)
+    token = _csrf_token(client, "/engagements/new")
+    response = client.post(
+        "/engagements/new",
+        data={"purpose": "unknown", "source": "challenge", "csrf_token": token},
+    )
+    assert response.status_code == 200
+    assert b"Choose the engagement purpose" in response.data
+
+
+def test_builder_shows_selected_engagement_context(client):
+    _login(client)
+    challenge = client.get("/launch?purpose=benchmark").data.decode()
+    target = client.get("/wizard?purpose=discovery").data.decode()
+    assert "Engagement setup · 2 of 3" in challenge and "Benchmark" in challenge
+    assert "Engagement setup · 2 of 3" in target and "Discovery" in target
+
+
+def test_challenge_builder_restores_imported_selection_and_purpose(client, monkeypatch):
+    import app as webui_module
+
+    monkeypatch.setattr(webui_module, "_catalog", lambda: ([], [], []))
+    monkeypatch.setattr(webui_module, "_default_infra", lambda: "container")
+    monkeypatch.setattr(
+        webui_module,
+        "_scenarios",
+        lambda: [
+            {
+                "id": "imported-lab",
+                "name": "Imported lab",
+                "provider_class": "container",
+            }
+        ],
+    )
+
+    _login(client)
+    html = client.get(
+        "/launch?purpose=benchmark&scenario=imported-lab"
+    ).data.decode()
+    assert 'name="engagement_purpose" value="benchmark"' in html
+    assert 'value="imported-lab" selected' in html
+
+
+def test_target_builder_error_preserves_engagement_purpose(client):
+    _login(client)
+    token = _csrf_token(client, "/wizard?purpose=benchmark")
+    response = client.post(
+        "/build-sut",
+        data={
+            "csrf_token": token,
+            "engagement_purpose": "benchmark",
+            "target_type": "bundle",
+        },
+    )
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/wizard?purpose=benchmark")
+
+
+@pytest.mark.parametrize(
+    ("path", "heading"),
+    [
+        ("/evaluations", "Evaluation workbench"),
+        ("/library/targets", "Targets"),
+        ("/library/agents", "Agents"),
+        ("/activity/findings", "Findings"),
+        ("/activity/evidence", "Evidence"),
+        ("/administration/providers", "Providers &amp; capacity"),
+        ("/administration/security", "Security"),
+    ],
+)
+def test_foundation_destinations_are_clickable_and_honest(client, path, heading):
+    _login(client)
+    html = client.get(path).data.decode()
+    assert heading in html
+    assert "Current product boundary" in html
+    assert "foundation" in html
+    assert html.count('aria-current="page"') == 1
+
+
+def test_shared_toolbar_pattern_is_used_by_filterable_indexes(client):
+    _login(client)
+    assert 'class="toolbar"' in client.get("/activity/audit").data.decode()
+    assert 'class="toolbar toolbar--spacious"' in client.get(
+        "/library/challenges"
+    ).data.decode()
+
+
+@pytest.mark.parametrize(
+    ("legacy_path", "target_path", "heading"),
+    [
+        ("/arenas", "/engagements", "Engagements"),
+        ("/scenarios", "/library/challenges", "Challenge library"),
+        ("/agents", "/activity/agents", "Agent activity"),
+        ("/audit", "/activity/audit", "Audit trail"),
+        ("/settings", "/administration/settings", "Settings"),
+    ],
+)
+def test_target_routes_preserve_legacy_workflows(client, legacy_path, target_path, heading):
+    _login(client)
+    legacy = client.get(legacy_path)
+    target = client.get(target_path)
+    assert legacy.status_code == target.status_code == 200
+    assert heading in legacy.data.decode()
+    assert heading in target.data.decode()
+
+
 def test_login_rejects_wrong_password_even_with_token(client):
     token = _csrf_token(client)
     resp = client.post(
@@ -297,7 +463,35 @@ def test_arena_detail_renders_discovery_score_and_findings(client, monkeypatch):
     assert "Assessment" in html and "discovery" in html
     assert "Findings" in html and "crash via input" in html
     assert "confirmed" in html
-    assert "Challenges" not in html  # no manifest -> no spoiler panel for a SUT
+    assert 'id="challenges-panel"' not in html  # no manifest -> no spoiler panel for a SUT
+
+
+def test_arena_detail_surfaces_durable_engagement_intent(client, monkeypatch):
+    import app as webui_module
+
+    monkeypatch.setattr(
+        webui_module,
+        "_api_get",
+        lambda path: ({"user_id": "intent-lab", "status": "active", "outputs": {}}, True),
+    )
+    monkeypatch.setattr(
+        webui_module,
+        "_events",
+        lambda *args, **kwargs: [
+            {
+                "type": "engagement_intent",
+                "payload": {"purpose": "benchmark", "source": "challenge"},
+            }
+        ],
+    )
+    monkeypatch.setattr(webui_module, "_score", lambda instance_id: None)
+    monkeypatch.setattr(webui_module, "_findings", lambda instance_id: [])
+    monkeypatch.setattr(webui_module, "_setup_steps", lambda instance_id: [])
+
+    _login(client)
+    html = client.get("/arena/intent-lab").data.decode()
+    assert "Immutable engagement intent" in html
+    assert "benchmark" in html
 
 
 def test_current_agent_disconnected_when_no_session(client):
@@ -551,7 +745,7 @@ def test_wizard_page_renders(client):
     _login(client)
     r = client.get("/wizard")
     assert r.status_code == 200
-    assert b"Software-Under-Test Wizard" in r.data and b"wiz-form" in r.data
+    assert b"New engagement from target" in r.data and b"wiz-form" in r.data
     assert b"authorization_confirmed" in r.data
     assert b"authorized to assess it" in r.data
     assert b'option value="oci"' in r.data
@@ -870,6 +1064,7 @@ def test_build_custom_posts_multiple_attackers(client, monkeypatch):
     token = _csrf_token(client, "/")
     resp = client.post("/build-custom", data=MultiDict([
         ("instance_id", "multi"),
+        ("engagement_purpose", "calibration"),
         ("attackers", "kali-cli"),
         ("attackers", "ubuntu"),
         ("victims", "dvwa"),
@@ -878,3 +1073,4 @@ def test_build_custom_posts_multiple_attackers(client, monkeypatch):
     assert resp.status_code == 302
     assert captured["url"].endswith("/arenas/custom")
     assert captured["json"]["attackers"] == ["kali-cli", "ubuntu"]
+    assert captured["json"]["engagement_purpose"] == "calibration"

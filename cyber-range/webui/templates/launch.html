@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Launch{% endblock %}
-{% block crumb %}Launch{% endblock %}
+{% block title %}New engagement from challenge{% endblock %}
+{% block crumb %}Engagements <span class="sep">/</span> New from challenge{% endblock %}
 {% block head %}<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>{% endblock %}
 
 {% macro preview(id, hint) %}
@@ -17,11 +17,12 @@
 {% endmacro %}
 
 {% block content %}
+{% include "_engagement_context.html" %}
 <div class="page-head">
   <div>
     <div class="eyebrow">Adversarial</div>
-    <h1>Launch an arena</h1>
-    <div class="sub">Stand up an attack arena — a predefined pack, a custom build, an AI-generated topology, a Vulhub import, or a pasted spec — with a live topology preview. Bringing up your own project to test? Use the <a href="{{ url_for('wizard') }}" style="color:var(--accent)">SUT wizard</a>.</div>
+    <h1>New engagement from challenge</h1>
+    <div class="sub">Start from a predefined challenge, custom build, generated topology, Vulhub import, or pasted spec.</div>
   </div>
 </div>
 
@@ -41,17 +42,18 @@
       <p class="help" style="margin-bottom:16px">Deploy a registered pack as-is. The preview updates as you choose.</p>
       <form method="POST" action="{{ url_for('create_lab') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if engagement_purpose %}<input type="hidden" name="engagement_purpose" value="{{ engagement_purpose.id }}">{% endif %}
         <div class="field"><label class="label">Scenario</label>
           <select class="select" name="scenario">
             {% for s in scenarios %}
-            <option value="{{ s.id }}">{{ s.name }} · {{ s.provider_class }}{% if default_infra not in ('any', s.provider_class) %} (needs {{ s.provider_class }} provider){% endif %}</option>
+            <option value="{{ s.id }}" {{ 'selected' if selected_scenario == s.id }}>{{ s.name }} · {{ s.provider_class }}{% if default_infra not in ('any', s.provider_class) %} (needs {{ s.provider_class }} provider){% endif %}</option>
             {% endfor %}
           </select>
         </div>
         <div class="field"><label class="label">Instance name</label>
           <input class="input mono" name="instance_id" placeholder="my-arena" required
                  pattern="[a-z0-9][a-z0-9-]{0,39}" title="Lowercase letters, digits and hyphens (max 40)"></div>
-        <button class="btn btn-primary" style="width:100%; justify-content:center"><i class="fa-solid fa-rocket"></i> Launch arena</button>
+        <button class="btn btn-primary" style="width:100%; justify-content:center"><i class="fa-solid fa-rocket"></i> Launch engagement</button>
       </form>
     </div>
     {{ preview('scenario-preview') }}
@@ -66,6 +68,7 @@
       <p class="help" style="margin-bottom:16px">Pick attacker machines and targets from the curated catalog — compiled to a validated topology. Hold Ctrl/Cmd to multi-select.</p>
       <form method="POST" action="{{ url_for('build_custom') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if engagement_purpose %}<input type="hidden" name="engagement_purpose" value="{{ engagement_purpose.id }}">{% endif %}
         <div class="grid cols-2" style="gap:14px">
           <div class="field"><label class="label">Attacker machines</label>
             <select class="select" name="attackers" multiple>

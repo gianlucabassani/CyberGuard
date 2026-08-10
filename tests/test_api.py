@@ -52,7 +52,12 @@ def test_list_deployments_ok(client):
 
 def test_deploy_accepts_and_persists_pending(client):
     resp = client.post(
-        "/deploy", json={"scenario": "basic_pentest", "instance_id": "lab-team-1"}
+        "/deploy",
+        json={
+            "scenario": "basic_pentest",
+            "instance_id": "lab-team-1",
+            "engagement_purpose": "benchmark",
+        },
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -66,6 +71,26 @@ def test_deploy_accepts_and_persists_pending(client):
     assert data["status"] == "pending"
     assert data["user_id"] == "lab-team-1"
     assert data["scenario"] == "basic_pentest"
+    events = client.get(f"/deployments/{system_id}/events").json()["events"]
+    intent = next(event for event in events if event["type"] == "engagement_intent")
+    assert intent["payload"] == {
+        "schema": "nidavellir.engagement-intent/v1",
+        "purpose": "benchmark",
+        "source": "challenge",
+    }
+
+
+def test_deploy_rejects_unknown_engagement_purpose(client):
+    response = client.post(
+        "/deploy",
+        json={
+            "scenario": "basic_pentest",
+            "instance_id": "bad-purpose",
+            "engagement_purpose": "marketing",
+        },
+    )
+    assert response.status_code == 422
+    assert "engagement_purpose" in response.text
 
 
 def test_status_unknown_returns_404(client):

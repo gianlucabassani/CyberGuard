@@ -1,19 +1,19 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
-{% block title %}Logs{% endblock %}
-{% block crumb %}Logs{% endblock %}
+{% block title %}Audit trail{% endblock %}
+{% block crumb %}Activity <span class="sep">/</span> Audit trail{% endblock %}
 
 {% block content %}
 <div class="page-head">
   <div>
     <div class="eyebrow">Audit trail</div>
-    <h1>Activity logs</h1>
+    <h1>Audit trail</h1>
     <div class="sub">Append-only and attributed — split by who acted: agents, humans, or the system.</div>
   </div>
   <div class="head-actions"><span class="badge badge--idle">{{ events|length }} event{{ 's' if events|length != 1 }}</span></div>
 </div>
 
-<div style="display:flex; gap:12px; align-items:center; margin-bottom:16px; flex-wrap:wrap">
+<div class="toolbar">
   <div class="seg" id="logs-seg" style="padding:3px">
     <button class="on" data-f="all">All sources</button>
     <button data-f="agent"><span class="dot" style="background:var(--attacker)"></span> Agents</button>
@@ -41,13 +41,13 @@
   </div>
   <div class="empty" id="logs-empty" hidden style="padding:30px">No events match this filter.</div>
   {% else %}
-  <div class="empty"><i class="fa-solid fa-clock-rotate-left"></i>No events yet. Launch an arena to start the trail.</div>
+  <div class="empty"><i class="fa-solid fa-clock-rotate-left"></i>No events yet. Create an engagement to start the trail.</div>
   {% endif %}
 </div>
 
 <p class="faint" style="margin-top:14px;font-size:12.5px">
   <i class="fa-solid fa-circle-info"></i>
-  Live streaming (SSE) is planned (Phase 7). This view refreshes on load; filters apply client-side.
+  Live streaming arrives with the engagement workspace (C3). This view refreshes on load; filters apply client-side.
 </p>
 {% endblock %}
 
