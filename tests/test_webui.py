@@ -190,8 +190,6 @@ def test_target_builder_error_preserves_engagement_purpose(client):
         ("/evaluations", "Evaluation workbench"),
         ("/library/targets", "Targets"),
         ("/library/agents", "Agents"),
-        ("/activity/findings", "Findings"),
-        ("/activity/evidence", "Evidence"),
         ("/administration/providers", "Providers &amp; capacity"),
         ("/administration/security", "Security"),
     ],
@@ -203,6 +201,123 @@ def test_foundation_destinations_are_clickable_and_honest(client, path, heading)
     assert "Current product boundary" in html
     assert "foundation" in html
     assert html.count('aria-current="page"') == 1
+
+
+def _cross_arena_client(client, monkeypatch, findings=(), verdicts=(), signals=(),
+                        deployments=None):
+    """Wire the console to a fake orchestrator holding events across two arenas."""
+    import app as webui_module
+
+    class _FakeResp:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        if "/deployments" in url and "/events" not in url:
+            return _FakeResp(deployments if deployments is not None else {
+                "arena-1": {"status": "active", "user_id": "web-review",
+                            "scenario": "sut:app", "outputs": {}},
+                "arena-2": {"status": "destroyed", "user_id": "past-run",
+                            "scenario": "container_web_pentest", "outputs": {}},
+            })
+        if "type=finding_verification" in url:
+            return _FakeResp({"events": list(verdicts)})
+        if "type=finding" in url:
+            return _FakeResp({"events": list(findings)})
+        if "type=monitor_signal" in url:
+            return _FakeResp({"events": list(signals)})
+        if "/events" in url:
+            return _FakeResp({"events": []})
+        return _FakeResp({})
+
+    monkeypatch.setattr(webui_module.requests, "get", fake_get)
+    _login(client)
+
+
+_FINDING_EVENTS = [
+    {"id": 9, "lab_id": "arena-1", "ts": "2026-08-18 10:00:00", "type": "finding",
+     "payload": {"finding_id": "f1", "title": "Reflected XSS in search", "cwe": "CWE-79",
+                 "node": "victim", "manual": False,
+                 "evidence_artifacts": [{"digest": "a" * 64, "bytes": 512}]}},
+    {"id": 8, "lab_id": "arena-2", "ts": "2026-08-18 09:00:00", "type": "finding",
+     "payload": {"finding_id": "f2", "title": "Weak cookie flags", "cwe": "CWE-614",
+                 "node": "victim", "manual": True, "evidence_artifacts": []}},
+]
+_VERDICT_EVENTS = [
+    {"id": 10, "lab_id": "arena-2", "ts": "2026-08-18 09:30:00",
+     "type": "finding_verification",
+     "payload": {"finding_id": "f2", "verdict": "confirmed", "actor": "admin"}},
+]
+
+
+def test_findings_index_spans_engagements_and_links_back(client, monkeypatch):
+    _cross_arena_client(client, monkeypatch, findings=_FINDING_EVENTS,
+                        verdicts=_VERDICT_EVENTS)
+    html = client.get("/activity/findings").data.decode()
+    assert "Reflected XSS in search" in html and "Weak cookie flags" in html
+    # every row returns to the engagement that produced it
+    assert "/arena/arena-1#findings" in html and "/arena/arena-2#findings" in html
+    assert "web-review" in html and "past-run" in html
+    # the operator verdict wins over the absent automatic one
+    assert 'data-src="confirmed"' in html
+    assert 'data-src="unverified"' in html
+    assert "1 awaiting review" in html
+
+
+def test_evidence_index_lists_artifacts_and_signals(client, monkeypatch):
+    signals = [{"id": 11, "lab_id": "arena-1", "ts": "2026-08-18 10:05:00",
+                "type": "monitor_signal",
+                "payload": {"kind": "crash", "node": "victim", "severity": "high",
+                            "summary": "exited with code 139"}}]
+    _cross_arena_client(client, monkeypatch, findings=_FINDING_EVENTS,
+                        verdicts=_VERDICT_EVENTS, signals=signals)
+    html = client.get("/activity/evidence").data.decode()
+    assert "a" * 16 in html                       # artifact digest tail
+    assert "/api/arenas/arena-1/evidence-artifacts/" in html
+    assert "Reflected XSS in search" in html      # provenance stays attached
+    assert "crash" in html and "exited with code 139" in html
+    assert "/arena/arena-1#evidence" in html
+
+
+def test_indexes_do_not_offer_links_into_a_pruned_engagement(client, monkeypatch):
+    """Finding events outlive a deleted arena record — say so instead of linking nowhere."""
+    _cross_arena_client(
+        client, monkeypatch, findings=_FINDING_EVENTS, verdicts=_VERDICT_EVENTS,
+        deployments={},  # every referenced engagement record is gone
+    )
+    findings_html = client.get("/activity/findings").data.decode()
+    assert "Reflected XSS in search" in findings_html      # the finding still stands
+    assert "/arena/arena-1#findings" not in findings_html  # but leads nowhere
+
+    evidence_html = client.get("/activity/evidence").data.decode()
+    assert "evidence-artifacts/" not in evidence_html      # nothing to download
+    assert "unavailable" in evidence_html
+
+
+def test_home_is_composed_from_product_objects(client, monkeypatch):
+    deployments = {
+        "arena-1": {"status": "active", "user_id": "web-review", "scenario": "sut:app",
+                    "outputs": {"egress": "open"}},
+        "arena-3": {"status": "failed", "user_id": "broken-run", "scenario": "sut:app",
+                    "outputs": {}},
+        "arena-2": {"status": "destroyed", "user_id": "past-run",
+                    "scenario": "container_web_pentest", "outputs": {}},
+    }
+    _cross_arena_client(client, monkeypatch, findings=_FINDING_EVENTS,
+                        verdicts=_VERDICT_EVENTS, deployments=deployments)
+    html = client.get("/").data.decode()
+    assert "Live engagements" in html and "web-review" in html
+    assert "Findings awaiting review" in html and "Reflected XSS in search" in html
+    # both attention kinds are stated, not buried
+    assert "Needs attention" in html
+    assert "broken-run" in html and "egress open" in html
+    assert "Providers &amp; capacity" in html
+    assert "/activity/findings" in html   # the review queue is one click away
 
 
 def test_shared_toolbar_pattern_is_used_by_filterable_indexes(client):

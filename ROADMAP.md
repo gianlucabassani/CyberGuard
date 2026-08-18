@@ -130,7 +130,7 @@ Still required:
 ### Verified health boundary
 
 - Python 3.11 is the declared CI/runtime line; the last full container gate
-  (2026-08-18) recorded 806 passing tests and 6 skips that need a Docker daemon or
+  (2026-08-18) recorded 808 passing tests and 6 skips that need a Docker daemon or
   the tofu binary, Ruff clean, and no medium/high Bandit findings.
 - Host Python 3.13 currently hangs in Starlette `TestClient`, including a minimal
   FastAPI reproduction. Do not describe a host-3.13 run as green; use the declared
@@ -140,7 +140,7 @@ Still required:
 
 ---
 
-## 3. Console product architecture — next milestone
+## 3. Console product architecture — shipped (C1–C4)
 
 ### C1 — Information architecture and application shell · **COMPLETE**
 
@@ -335,7 +335,7 @@ fixed — the topology could not measure itself inside a hidden panel, and the m
 finding form's inline `display:grid` had been silently defeating its `hidden`
 attribute.
 
-### C4 — Home and cross-cutting activity
+### C4 — Home and cross-cutting activity · **COMPLETE**
 
 Redesign Home only after C1–C3 so it reflects the real product model:
 
@@ -347,6 +347,28 @@ Redesign Home only after C1–C3 so it reflects the real product model:
 
 Activity supplies global Findings, Evidence, and Audit indexes; each item links
 back to its engagement/run context.
+
+**Shipped (2026-08-18).** Home is composed from the objects an operator acts on:
+live engagements with their expiry, findings awaiting a verdict, and an attention
+list that names both failed runs and any live arena whose egress is open, beside
+provider/capacity health and the activity feed. Every tile is a route into the work
+it counts. Evaluations remains an honest dash until E1 gives it durable records.
+
+Activity → Findings and Activity → Evidence are no longer foundation pages. Findings
+folds the global `finding` and `finding_verification` streams into one index — the
+operator verdict overriding any automatic one — with facet counts (all / awaiting
+review / confirmed / refuted) and search over title, CWE, node, and engagement.
+Evidence lists content-addressed artifacts with their provenance and download, plus
+monitor signals, across engagements. Both filter through the same toolbar contract as
+the audit trail, and every row returns to the engagement workspace on the tab that
+owns it (`/arena/{id}#findings`). Where an engagement record has been pruned, the
+finding still stands but the console offers no link or download it cannot honor.
+
+**Acceptance.** Met, and confirmed live on 2026-08-18: filtering 26 findings by
+verdict and text worked in the browser, a row followed through to its engagement's
+Findings tab, evidence whose arena record was gone rendered as unavailable rather
+than as a dead download, and the nav no longer marks either destination as
+foundation.
 
 ---
 

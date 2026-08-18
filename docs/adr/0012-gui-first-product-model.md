@@ -1,6 +1,7 @@
 # ADR-0012: GUI-first product model and console information architecture
 
-- **Status:** Proposed
+- **Status:** Proposed — acceptance items 1–4 met on 2026-08-18 (C1–C4 shipped);
+  item 5 waits on the durable evaluation records in E1–E5.
 - **Date:** 2026-08-10
 - **Deciders:** Gianluca Bassani
 

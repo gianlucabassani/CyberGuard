@@ -2089,6 +2089,18 @@
     if (search) search.addEventListener("input", apply);
   }
 
+  /* ---- activity indexes (Findings / Evidence) ------------------------- */
+  // Same facet + search contract as the audit trail, so every index filters alike.
+  function initActivityIndex(name) {
+    const search = document.getElementById(name + "-search");
+    let facet = "all";
+    const apply = () => _applyRowFilter(
+      "#" + name + "-rows ." + name + "-row", facet,
+      search ? search.value : "", name + "-empty");
+    _segWire(name + "-seg", (f) => { facet = f; apply(); });
+    if (search) search.addEventListener("input", apply);
+  }
+
   /* ---- launch (single-view type selector) ----------------------------- */
   function initLaunch() {
     const panels = Array.prototype.slice.call(document.querySelectorAll(".launch-panel"));
@@ -2353,7 +2365,7 @@
   window.Nidavellir = {
     initArena, initWorkspaceTabs, renderTopology, renderSpecTopology,
     initScenarioPreview, initScenariosBrowser,
-    initDashboard, initLogs, initLaunch, initWizard, initInventory, initSettings,
+    initDashboard, initLogs, initActivityIndex, initLaunch, initWizard, initInventory, initSettings,
     openModelModal, closeModelModal, openModelConfig, saveModel, removeModel, testModel,
     toggleSidebar, closeSidebar, toggleCopilot, sendCopilot,
     openAgentConfig, closeAgentConfig, revokeAgent, pauseAgent, resumeAgent,

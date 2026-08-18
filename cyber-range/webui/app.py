@@ -304,6 +304,90 @@ def _setup_steps(instance_id):
     return steps
 
 
+def _arena_names():
+    """arena id → the operator-facing engagement name, for cross-arena indexes."""
+    deployments, _ = _deployments()
+    return {k: (v.get("user_id") or k) for k, v in deployments.items()}
+
+
+def _finding_verdict(finding):
+    confirmed = (finding.get("validation") or {}).get("confirmed")
+    if confirmed is True:
+        return "confirmed"
+    if confirmed is False:
+        return "refuted"
+    return "unverified"
+
+
+def _all_findings(limit=200, names=None):
+    """Findings across every engagement, newest first, with the operator verdict merged.
+
+    `_findings` answers the same question for one arena; the Activity index needs it
+    globally, so it folds the two type-filtered event streams together and tags each
+    finding with the engagement it belongs to.
+    """
+    names = _arena_names() if names is None else names
+    verdicts = {}
+    for event in _events(limit=limit, type="finding_verification"):
+        payload = event.get("payload") or {}
+        finding_id = payload.get("finding_id")
+        if finding_id and finding_id not in verdicts:  # newest-first: first wins
+            verdicts[finding_id] = payload
+    out = []
+    for event in _events(limit=limit, type="finding"):
+        finding = {**(event.get("payload") or {}), "ts": event.get("ts")}
+        arena_id = event.get("lab_id")
+        finding["arena_id"] = arena_id
+        finding["arena_name"] = names.get(arena_id, (arena_id or "")[:8])
+        # An engagement record can be pruned while its finding events remain; say so
+        # rather than offering a link or a download that cannot resolve.
+        finding["arena_known"] = arena_id in names
+        verdict = verdicts.get(finding.get("finding_id"))
+        if verdict:  # a human verdict overrides any automatic one
+            finding["validation"] = {
+                "confirmed": verdict.get("verdict") == "confirmed",
+                "method": "operator",
+                "by": verdict.get("actor"),
+            }
+        finding["verdict"] = _finding_verdict(finding)
+        out.append(finding)
+    return out
+
+
+def _all_evidence(limit=200, names=None, findings=None):
+    """Cross-engagement evidence: content-addressed artifacts and monitor signals.
+
+    Artifacts are reached through the findings that reference them, so provenance
+    stays attached; signals come from the monitor's own append-only events.
+    """
+    names = _arena_names() if names is None else names
+    findings = _all_findings(limit, names) if findings is None else findings
+    artifacts = [
+        {
+            **artifact,
+            "arena_id": finding.get("arena_id"),
+            "arena_name": finding.get("arena_name"),
+            "finding_id": finding.get("finding_id"),
+            "finding_title": finding.get("title"),
+            "arena_known": finding.get("arena_known"),
+            "ts": finding.get("ts"),
+        }
+        for finding in findings
+        for artifact in (finding.get("evidence_artifacts") or [])
+    ]
+    signals = []
+    for event in _events(limit=limit, type="monitor_signal"):
+        arena_id = event.get("lab_id")
+        signals.append({
+            **(event.get("payload") or {}),
+            "arena_id": arena_id,
+            "arena_name": names.get(arena_id, (arena_id or "")[:8]),
+            "arena_known": arena_id in names,
+            "ts": event.get("ts"),
+        })
+    return artifacts, signals
+
+
 # Which actor a log line belongs to — the Logs page and the Dashboard feed group
 # events into agents (the AI under test), human (operator actions), and system
 # (lifecycle/automation). Computed server-side so the templates/JS stay dumb.
@@ -479,28 +563,57 @@ def logout():
 # --- pages -------------------------------------------------------------------
 @app.route("/")
 def overview():
+    """Home, composed from the product objects an operator actually acts on:
+    live engagements, findings waiting on a verdict, and anything needing attention."""
     deployments, ok = _deployments()
     scenarios = _scenarios()
-    images, _, _ = _catalog()
+    names = {k: (v.get("user_id") or k) for k, v in deployments.items()}
+    findings = _all_findings(limit=120, names=names)
 
     by = {}
     for v in deployments.values():
         by[v.get("status")] = by.get(v.get("status"), 0) + 1
-    stats = {
-        "total": len(deployments),
-        "active": by.get("active", 0),
-        "transient": sum(by.get(s, 0) for s in _TRANSIENT),
-        "failed": by.get("failed", 0) + by.get("error_destroying", 0),
-        "scenarios": len(scenarios),
-        "images": len(images),
-    }
-    current = [(k, v) for k, v in deployments.items() if v.get("status") != "destroyed"]
-    archived = [(k, v) for k, v in deployments.items() if v.get("status") == "destroyed"]
-    recent = (current + archived)[:6]
 
-    return render_template("overview.html", active="overview", stats=stats,
-                           recent=recent, backend_ok=ok,
-                           events=_annotate_source(_events(limit=12)))
+    live = [
+        (k, v) for k, v in deployments.items()
+        if v.get("status") not in ("destroyed", "failed", "error_destroying")
+    ]
+    review_queue = [f for f in findings if f["verdict"] == "unverified"]
+
+    # Attention: a run that broke, and a live arena that can reach the internet.
+    # Both are operator decisions, so Home states them instead of burying them.
+    attention = []
+    for arena_id, record in deployments.items():
+        status = record.get("status")
+        if status in ("failed", "error_destroying"):
+            attention.append({
+                "kind": "failed", "arena_id": arena_id,
+                "name": names.get(arena_id, arena_id), "status": status,
+                "detail": "The run stopped before it could finish.",
+            })
+        elif status == "active" and (record.get("outputs") or {}).get("egress") == "open":
+            attention.append({
+                "kind": "containment", "arena_id": arena_id,
+                "name": names.get(arena_id, arena_id), "status": status,
+                "detail": "This arena can reach the internet — containment is relaxed.",
+            })
+
+    stats = {
+        "live": len(live),
+        "total": len(deployments),
+        "transient": sum(by.get(s, 0) for s in _TRANSIENT),
+        "review": len(review_queue),
+        "attention": len(attention),
+        "scenarios": len(scenarios),
+    }
+
+    archived = [(k, v) for k, v in deployments.items() if v.get("status") == "destroyed"]
+    return render_template(
+        "overview.html", active="overview", stats=stats,
+        live=live[:6], recent=archived[:4], attention=attention[:5],
+        review_queue=review_queue[:6], backend_ok=ok,
+        events=_annotate_source(_events(limit=12)),
+    )
 
 
 @app.route("/arenas")
@@ -915,24 +1028,6 @@ _FOUNDATION_PAGES = {
         "link_endpoint": "agent_activity",
         "link_label": "Open agent activity",
     },
-    "findings": {
-        "group": "Activity",
-        "title": "Findings",
-        "icon": "fa-bug",
-        "description": "A cross-engagement index of submitted, verified, and rejected findings will live here.",
-        "current": "Findings are currently available inside each engagement workspace.",
-        "link_endpoint": "engagements",
-        "link_label": "Choose an engagement",
-    },
-    "evidence": {
-        "group": "Activity",
-        "title": "Evidence",
-        "icon": "fa-box-archive",
-        "description": "Artifacts, traces, and change observations will be searchable here.",
-        "current": "Evidence remains attached to its engagement today so provenance is preserved.",
-        "link_endpoint": "engagements",
-        "link_label": "Choose an engagement",
-    },
     "providers": {
         "group": "Administration",
         "title": "Providers & capacity",
@@ -976,12 +1071,29 @@ def agent_library():
 
 @app.route("/activity/findings")
 def findings_index():
-    return _foundation_page("findings")
+    """Every finding, across engagements, with the operator verdict that decides it."""
+    findings = _all_findings()
+    counts = {
+        "all": len(findings),
+        "unverified": sum(1 for f in findings if f["verdict"] == "unverified"),
+        "confirmed": sum(1 for f in findings if f["verdict"] == "confirmed"),
+        "refuted": sum(1 for f in findings if f["verdict"] == "refuted"),
+    }
+    return render_template(
+        "findings_index.html", active="findings", findings=findings, counts=counts
+    )
 
 
 @app.route("/activity/evidence")
 def evidence_index():
-    return _foundation_page("evidence")
+    """Artifacts and observed signals across engagements, each linking back to its own."""
+    names = _arena_names()
+    findings = _all_findings(names=names)
+    artifacts, signals = _all_evidence(names=names, findings=findings)
+    return render_template(
+        "evidence_index.html", active="evidence",
+        artifacts=artifacts, signals=signals,
+    )
 
 
 @app.route("/administration/providers")
