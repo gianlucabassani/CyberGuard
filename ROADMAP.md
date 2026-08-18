@@ -1,27 +1,47 @@
 # Roadmap
 
-> **North star:** Nidavellir is the GUI-driven, bring-your-own-agent cyber
-> evaluation arena for active challenges. It provisions a reproducible target,
+> **North star:** Nidavellir is the GUI-driven, bring-your-own-agent arena for
+> security work on real running systems. It provisions a reproducible target,
 > gives a human or agent a contained research position, observes what really
 > happened, verifies evidence, and turns the session into a replayable result.
 >
-> The AI is the system under test. Nidavellir is the environment, capability
-> boundary, observer, referee, and comparison layer.
+> That substrate serves **two objectives on one engine**:
+>
+> - **Discovery** — find real, previously unknown vulnerabilities in real
+>   products, with reproducible setup, evidence-grade proof, and a
+>   disclosure-ready record. Here the **target** is under test and the
+>   participant, human or agent, is the instrument.
+> - **Evaluation** — measure and compare complete agent builds over held-out
+>   challenges. Here the **AI** is under test and Nidavellir is the environment,
+>   capability boundary, observer, referee, and comparison layer.
+>
+> Neither is a side product of the other. They share the arena, gateway, event
+> spine, evidence, validation, and scoring substrate, and they are sequenced so
+> that discovery work produces the verified, held-out material that makes
+> evaluation credible.
 
-This roadmap was reorganized on 2026-08-10 after the provisioning, scoring,
-eval-export, target-intake, evidence, file-transfer, and browser slices had
-landed. The next constraint is no longer a missing backend primitive: the
-console has accumulated many independently useful functions without a durable
-product information architecture. Adding suites, trials, agent builds, and
-comparisons to the current navigation would make that problem worse.
+This roadmap was reorganized on 2026-08-10 around the console product model, and
+extended on 2026-08-19 to state the discovery objective explicitly. The engine and
+the console are now shipped; the remaining work splits into a shared research
+runtime, a discovery lane, and an evaluation lane.
 
 The sequence is therefore:
 
 1. preserve the shipped engine;
-2. establish a coherent GUI product model and migrate existing workflows into it;
-3. finish the agent-grade research runtime inside that structure;
-4. build GUI-driven agent regression evaluation;
-5. publish the held-out proof.
+2. establish a coherent GUI product model and migrate existing workflows into it
+   (**done**);
+3. finish the research runtime both objectives need — HTTP primitive, confined
+   execution, pivoting, durable budgets and kill switches;
+4. build the discovery lane: patch-diff and variant hunting, a fuzzing and crash
+   triage path into the existing oracle, binary/appliance/VM intake, and
+   campaign-level dedup and disclosure output;
+5. build GUI-driven agent regression evaluation on the corpus discovery produces;
+6. publish the held-out proof.
+
+Steps 4 and 5 are dual, not sequential-by-necessity: step 3 is the shared
+prerequisite, and either lane can lead. The order above reflects one judgment —
+that verified challenges from real research are what make an agent comparison
+defensible, and that they cannot be bought or borrowed.
 
 Correctness, containment, and independent verification remain ahead of feature
 count. The authoritative product boundary is
@@ -32,22 +52,52 @@ decisions live in [`docs/adr/`](docs/adr/).
 
 ## 1. Product definition
 
-Nidavellir evaluates **complete agents**, not only models. A result identifies
-the model, scaffold, tools, budgets, target, starting state, and evidence. The
-primary benchmark is an **active challenge**: a real running system whose state
-and responses change as the participant acts. Static CTFs and known-CVE packs
-remain useful calibration lanes, but they are not the whole product.
+### 1.1 Two objectives, one engine
+
+**Discovery.** Nidavellir is a vulnerability research platform: point it at a
+real product, get it running at an exact identity, work it from a contained
+position with real tooling, and leave with a reproducible proof — the finding,
+its PoC, the observed effect, the patch or diff that explains it, and the
+immutable identity of what was tested. The output is a defensible vulnerability
+record, not a score. Most of the friction this removes is unglamorous and real:
+standing the thing up at the right version, keeping the environment contained,
+and being able to prove afterwards exactly what was hit.
+
+**Evaluation.** Nidavellir also evaluates **complete agents**, not only models. A
+result identifies the model, scaffold, tools, budgets, target, starting state,
+and evidence. The primary benchmark is an **active challenge**: a real running
+system whose state and responses change as the participant acts. Static CTFs and
+known-CVE packs remain useful calibration lanes, but they are not the whole
+product.
+
+The two are duals of one substrate. The same provisioning, containment, monitor,
+validator, evidence, and scoring machinery answers "is this vulnerability real?"
+and "did this agent find it". A discovery session with hidden truth withheld is
+an evaluation challenge; an evaluation run whose participant is a human operator
+is a discovery session.
+
+They also feed each other in one direction that matters: **verified findings from
+real research are the only honest source of held-out challenges.** Public CTFs and
+known-CVE packs are calibration, and any agent comparison built solely on them is
+contestable. This is why the discovery lane is sequenced ahead of the comparison
+workbench, and why P1's proof corpus is drawn from it.
+
+### 1.2 Operator journeys
 
 Nidavellir supports two first-class operator journeys:
 
 - **Engagement:** one human or agent performs security research in one active
   arena. The operator configures the target, observes work, and reviews evidence.
+  An engagement declares its purpose — *discovery* and *manual research* serve the
+  discovery objective; *benchmark* and *calibration* serve measurement.
 - **Evaluation:** one or more pinned agent builds run repeated trials over a
   challenge suite. Nidavellir compares verified capability, regressions, cost,
   latency, and safety.
 
 Both journeys reuse the same arena, gateway, event, evidence, validation, and
-scoring substrate. Evaluation is not a second engine layered beside engagements.
+scoring substrate. Evaluation is not a second engine layered beside engagements,
+and discovery is not a degraded evaluation — it is the mode in which the target,
+rather than the participant, is the thing being judged.
 
 ### Product objects and relationships
 
@@ -62,6 +112,8 @@ scoring substrate. Evaluation is not a second engine layered beside engagements.
 | **Run** | One agent build on one challenge for one trial/seed. |
 | **Arena** | The live infrastructure allocated to an engagement or run. It is an execution resource, not the top-level product workflow. |
 | **Evidence** | Findings, PoCs, monitor signals, files, patches, traces, and validator verdicts tied to immutable identities. |
+| **Campaign** | A discovery-lane grouping: one target portfolio worked across many engagements over time, with findings deduplicated and tracked to disclosure. |
+| **Vulnerability record** | The discovery-lane result: a confirmed finding with its PoC, observed effect, affected identity/version range, and disclosure state. A challenge is what it becomes once its truth is hidden. |
 
 The existing code/database terms `deployment` and `lab` may remain internally
 until migrated safely. New operator-facing prose uses the glossary above.
@@ -372,10 +424,19 @@ foundation.
 
 ---
 
-## 4. Research-ready runtime — complete the existing session
+## 4. Research-ready runtime — the shared prerequisite
 
 This work follows the C1 shell and C3 workspace foundations so new controls have
 a durable place in the product. It completes, rather than replaces, legacy M4.
+
+**Both objectives need exactly this.** A researcher cannot work a real target
+without an HTTP primitive, a place to run a PoC, and a way to reach an internal
+service; an agent under evaluation cannot demonstrate capability without the same
+tools, and a comparison across builds is meaningless if the toolset differs
+between them. Build each primitive so a human drives it in the workspace and an
+agent drives the same bounded operation over MCP — one implementation, two
+callers, identical scope checks and audit records. A tool that only an agent can
+reach will not be exercised often enough to be trustworthy.
 
 ### R1 — HTTP research primitive
 
@@ -405,7 +466,135 @@ budget freezes further work; containment tests remain green.
 
 ---
 
-## 5. GUI-driven agent evaluation workbench
+## 5. Discovery lane — the vulnerability research platform
+
+The engine already does the unglamorous half of vulnerability research: it
+resolves a target to an immutable identity, stands it up reproducibly, contains
+it, watches it for faults, hashes what changed, and records proof that survives
+the arena. What it does not yet do is the specifically *offensive* half — hunt
+variants of a known fix, drive a fuzzer into its own crash oracle, open a firmware
+image, or carry findings across months of work on one product.
+
+This lane closes that gap. It assumes R1–R3 exists, since a researcher without an
+HTTP primitive or a sandbox is not equipped.
+
+**Scope discipline.** Nidavellir does not become an exploitation framework or a
+scanner. It provisions, contains, observes, verifies, and records. Tooling lands
+here only when it produces evidence the platform can independently check.
+
+### D1 — Patch-diff and variant hunting
+
+Intake two identities of the same target — a vulnerable release and its fix, two
+Git objects, two OCI digests — and make the security-relevant difference a
+first-class object: the changed files and functions, the reachable entry points
+they sit behind, and a bounded, hashed diff artifact reusing the existing evidence
+path. From there, drive a variant sweep: the same defect class in the same
+codebase in the places the fix did not touch.
+
+This is where a researcher actually starts on a real product, and it is the
+cheapest strong capability the platform can add, because the change-intelligence
+and evidence-artifact primitives already exist.
+
+**Acceptance.** From the browser, an operator supplies a target and two versions,
+sees the security-relevant diff with its hashed artifact, launches an arena pinned
+to the vulnerable identity, and records a finding whose evidence references both
+the diff digest and the observed effect. The same diff is available to an agent
+over MCP under the existing scope checks.
+
+### D2 — Fuzzing and crash triage
+
+The crash oracle exists and nothing feeds it. Add the missing half: register a
+harness for a target, manage seed corpora and dictionaries as versioned artifacts,
+run campaigns inside the R2 confined-execution boundary, and route every fault
+into the monitor path that already deduplicates by fingerprint.
+
+Then make a crash usable: automatic minimization, deterministic reproduction from
+a stored input, and a triage verdict that separates a reproducible fault from log
+noise. Coverage is a means, not a metric to display for its own sake.
+
+**Acceptance.** A campaign against a known-vulnerable target rediscovers its fault
+from a cold corpus, the crash is minimized and reproduced deterministically from
+its stored input, and the resulting finding carries the input digest as evidence.
+Campaign resource use stays inside declared budgets and the host stays contained.
+
+### D3 — Binary, appliance and VM intake
+
+Promoted from the deferred list, with its reason stated: the highest-value product
+research targets are appliances, firmware, and thick clients, not source-available
+web applications. A platform that only accepts a Git URL cannot serve the work its
+users actually do.
+
+Required: VM-image and firmware intake with the same content-addressed identity
+discipline as source bundles; a local VM provider path (libvirt/QEMU is the
+existing skeleton); snapshot and restore so a research position is repeatable;
+debugger attach and symbolization inside the arena boundary; and a before/after
+manifest for targets with no Git workspace, so change intelligence still works.
+
+This is the largest single item on the roadmap and the one most likely to be
+descoped to a subset — a defensible first cut is VM-image intake plus snapshot and
+restore, with debugging deferred.
+
+**Acceptance.** An operator ingests a VM or firmware image by digest, boots it in a
+contained arena, takes a snapshot, works it, restores, and reproduces the same
+state. Findings reference the image digest and the before/after manifest.
+
+### D4 — Campaigns, deduplication and disclosure output
+
+Research on one product runs for months across many sessions. Add a **campaign**:
+a target portfolio worked over time, with findings deduplicated across engagements
+and versions, tracked through a disclosure state — internal, reported, fixed,
+published, regressed — and exportable as a disclosure bundle carrying the finding,
+PoC, observed effect, affected identity range, and hashes.
+
+Regression matters as much as discovery here: when a vendor ships a fix, the same
+PoC must be re-runnable against the new identity to confirm it, and to catch the
+fix that does not hold.
+
+**Acceptance.** An operator opens a campaign over one product's release history,
+sees findings deduplicated across sessions and versions with their disclosure
+state, re-runs a stored PoC against a newer release to confirm or refute the fix,
+and exports a disclosure-ready bundle whose every claim resolves to a recorded
+identity and artifact.
+
+### Discovery acceptance
+
+The lane is credible when a real, previously unknown vulnerability in a real
+product is found and proven end to end inside Nidavellir — set up from an
+immutable identity, worked from a contained position, confirmed by observed
+effect rather than assertion, and exported as a disclosure bundle — and when the
+same finding, with its truth withheld, becomes a held-out challenge for the
+evaluation lane without any rework.
+
+---
+
+## 6. How the lanes meet
+
+The discovery lane produces material the evaluation lane cannot obtain otherwise,
+and the evaluation lane produces the pressure that keeps discovery tooling honest.
+
+| Shared substrate | Used by discovery as | Used by evaluation as |
+|---|---|---|
+| Immutable target identity | proof of what was tested and what a fix applies to | the pinned starting state a comparison requires |
+| Contained arena + stances | a safe research position on someone else's product | the capability boundary a result is valid within |
+| Monitor + validators | independent confirmation that a bug is real | the grader that outranks an agent's claim |
+| Evidence artifacts + PoC | the disclosure record | the reproducibility check behind a score |
+| Structured score | progress within a long campaign | the comparable outcome per run |
+| Verified finding | the deliverable | the challenge, once its truth is hidden |
+
+**The one-way dependency:** a challenge is a solved discovery problem with the
+answer withheld. Nidavellir can therefore build a private challenge corpus that no
+public benchmark can replicate, but only if discovery work actually happens on the
+platform. An evaluation product built before the discovery lane would be limited
+to public CTFs and known-CVE packs — exactly the calibration material this roadmap
+says is not sufficient for a defensible comparison.
+
+The reverse dependency is weaker but real: measuring agents on a corpus exposes
+which tools they could not use and which evidence paths were never exercised,
+which is the most reliable signal for where the research runtime is still thin.
+
+---
+
+## 7. GUI-driven agent evaluation workbench
 
 ### E1 — Durable experiment model
 
@@ -471,7 +660,7 @@ cost, or safety improved or regressed.
 
 ---
 
-## 6. Proof, release, and later extensions
+## 8. Proof, release, and later extensions
 
 ### P1 — Held-out flagship proof
 
@@ -493,7 +682,7 @@ model; do not create a separate evaluation product.
 
 ---
 
-## 7. Explicitly deferred
+## 9. Explicitly deferred
 
 These do not block the single-team, self-hosted evaluation product:
 
@@ -510,7 +699,7 @@ multi-agent/purple-team.
 
 ---
 
-## 8. Standing principles
+## 10. Standing principles
 
 - **GUI-driven product, API-backed architecture.** Every normal operator workflow
   is complete in the browser. Business logic, orchestration, and persistence stay
@@ -536,7 +725,7 @@ multi-agent/purple-team.
 
 ---
 
-## 9. Legacy milestone mapping
+## 11. Legacy milestone mapping
 
 | Previous roadmap | New location |
 |---|---|
@@ -554,7 +743,7 @@ Detailed historical `Pn-m` implementation records remain in
 
 ---
 
-## 10. Architecture decisions
+## 12. Architecture decisions
 
 - ADR-0002 — API-key authentication and WebUI login.
 - ADR-0003 — provider driver interface and scenario compilation.
