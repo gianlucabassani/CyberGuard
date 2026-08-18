@@ -16,7 +16,7 @@
   <a href="https://gianlucabassani.github.io/Nidavellir"><img src="https://img.shields.io/badge/website-live-F5A524"></a>
   <img src="https://img.shields.io/badge/status-active_development-F5A524">
   <img src="https://img.shields.io/badge/stack-Python_·_FastAPI_·_Celery_·_MCP-3D9BFF">
-  <img src="https://img.shields.io/badge/providers-docker--local_·_OpenStack_·_AWS-34D399">
+  <img src="https://img.shields.io/badge/provider-docker--local_(live)-34D399">
   <img src="https://img.shields.io/badge/license-MIT-8A93A8">
 </p>
 
@@ -33,37 +33,49 @@ execution path runs locally with Docker.
 
 ## The console
 
-<p align="center"><img src="docs/assets/dashboard.png" alt="Nidavellir dashboard — fleet, host capacity, live activity" width="900"></p>
+Every normal workflow is complete in the browser. The console presents and drives; orchestration,
+persistence, validation, and scoring stay behind the API.
 
-A mission-control dashboard currently exposes live arenas, host capacity, and a source-split
-activity stream (agent / human / system). The console is being reorganized around two durable
-operator journeys—**Engagements** and **Evaluations**—plus a reusable Library and global Activity
-views. Existing functions remain available during the migration. The current **Inventory** shows
-scenario packs and live topology previews:
+```text
+Home            live engagements · findings awaiting review · attention · capacity
+Engagements     active + archived runs · New engagement (purpose · source · participants · time box)
+Evaluations     reserved for repeated trials and paired comparisons (E1–E5)
+Library         Challenges · Targets · Agents
+Activity        Findings · Evidence · Audit trail
+Administration  Providers & capacity · Security · Settings
+```
 
-<p align="center"><img src="docs/assets/inventory.png" alt="Nidavellir inventory — scenario packs with machine line-ups + topology" width="900"></p>
+Opening an engagement gives a **contextual workspace** — Overview · Live · Target · Findings ·
+Evidence · Changes · Agent · Trace · Score · Infrastructure — where only the applicable tabs render
+and the active tab lives in the URL, so `#findings` is a shareable deep link. Setup is a phase of the
+engagement rather than a permanent page block. Arena state, audit events, agent actions, findings,
+and monitor signals stream over **SSE**, resuming exactly on reconnect. When an arena is destroyed
+its engagement becomes a **read-only record**: no live actions and no stale claims about running
+nodes, but findings, evidence, score, and trace stay reviewable — evidence outlives the
+infrastructure it came from.
 
-The **Arena View** gives operators full live-control over active topologies:
+## Three engine pillars
 
-<p align="center"><img src="docs/assets/arena.png" alt="Inside Arena View — instance control and network segments" width="900"></p>
+1. **Dynamic topologies and target intake.** A scenario is a provider-agnostic, data-defined
+   topology — arbitrary `nodes[]` + network `segments[]`, not a frozen trio — compiled by driver
+   (docker-local is the live path; VM and cloud drivers are deliberately deferred). Targets resolve
+   to immutable identities: a Git object, a digest-pinned OCI image, a hashed source bundle, or a
+   named package, so a result says exactly what was tested.
+2. **Scoped participant runtime.** A human or a BYO agent enters a contained arena through an
+   explicit stance — **attacker** (offensive foothold, scored), **MITM** (in-path on a shared
+   segment), or **defender** (events, alerts, response) — with server-enforced key↔arena bindings,
+   narrow capabilities, no egress by default, and an append-only trace. Reproducible single-agent
+   runs are the current requirement; multi-agent red-vs-blue is deferred.
+3. **Independent evidence and comparison.** Monitor signals, deterministic validators, hashed
+   evidence artifacts, and structured scores decide what a run achieved — a reflected XSS counts
+   only when JavaScript is observed executing in a real browser. Unknown is not refuted, and
+   immutable identities plus replay are what make an agent-version comparison explainable.
 
-## Three pillars
-
-1. **Dynamic N-node topologies** (GOAD-inspired). A scenario is a provider-agnostic, data-defined
-   topology — arbitrary `nodes[]` + network `segments[]`, not a frozen trio. One spec compiles to
-   docker-local containers, OpenStack VMs, or AWS. Ships as **arena packs** with variants.
-2. **Agent runtime via MCP gateways**. A BYO agent connects through a gateway
-   that wires it into a running arena as **attacker** (offensive foothold, scored), **MITM**
-   (in-path on a shared segment), or **defender** (blue: events, alerts, response) — with scope
-   enforcement, guardrails, budgets, and traces. Reproducible single-agent runs are the current
-   requirement; multi-agent red-vs-blue is deferred.
-3. **Zero-to-prompt scenario generation** (BYO key). An LLM turns a brief into a topology spec;
-   Nidavellir **validates** it against the schema and **compiles** it — never auto-deploying
-   unreviewed infra.
-
-The data model scales to new arena *kinds* cheaply — AD labs, service meshes, CTF web apps,
-LLM-app targets, and **software-under-test (SUT) arenas**: point Nidavellir at any open-source
-project and have a BYO agent pentest it, white- or black-box, deeply monitored and scored.
+An LLM can also turn a brief into a topology spec (bring your own key); Nidavellir **validates** it
+against the schema and **compiles** it, never auto-deploying unreviewed infrastructure. The data
+model scales to new arena *kinds* cheaply — AD labs, service meshes, CTF web apps, LLM-app targets,
+and **software-under-test (SUT) arenas**: point Nidavellir at any open-source project and have a BYO
+agent pentest it, white- or black-box, deeply monitored and scored.
 
 ## Quick start
 
@@ -99,7 +111,8 @@ curl -sX POST localhost:8000/scenarios/import/vulhub -H "X-API-Key: dev-insecure
   BYO agent  ─────────▶  attacker / MITM / defender stances  ·  scope · guardrails · budgets · trace
 ```
 
-- **Console** (Flask + Jinja) — fleet, launch, inventory, logs, agents, configurator, co-pilot.
+- **Console** (Flask + Jinja) — engagements, workspace tabs, activity indexes, configurator, co-pilot;
+  live state over SSE.
 - **Orchestrator** (FastAPI) — `/deploy`, `/scenarios`, `/exec`, scoring; API-key auth (ADR-0002),
   append-only `events` audit table, Fernet-encrypted outputs at rest.
 - **Worker** (Celery + Redis) → **provider drivers** (`mock`, `docker-local`, `openstack`, `aws`).
@@ -107,18 +120,17 @@ curl -sX POST localhost:8000/scenarios/import/vulhub -H "X-API-Key: dev-insecure
 
 ## Roadmap
 
-The provisioning→monitoring→validation→score→eval-export engine is shipped. The roadmap was
-reorganized on 2026-08-10 because the next constraint is product coherence: adding agent builds,
-suites, trials, and comparisons to the current Launch/SUT/Arenas navigation would make the GUI
-harder to use. The console information architecture therefore lands before the evaluation
-workbench. Full detail is in [`ROADMAP.md`](ROADMAP.md).
+The provisioning→monitoring→validation→score→eval-export engine is shipped, and so is the console
+product model that gives every function a home. What remains is the research runtime that completes
+an agent-grade arena, then the workbench that turns single engagements into repeated, comparable
+evaluations. Full detail is in [`ROADMAP.md`](ROADMAP.md).
 
 | Stage | Focus | Status |
 |---|---|---|
 | **Shipped engine** | Dynamic arenas, target intake, repo→service, monitoring, validators, scoring, eval export and replay | ✅ shipped |
 | **Research session** | Change evidence, file transfer, browser; proxy/sandbox/tunnel/durable guardrails remain | 🟢 partially shipped |
-| **Console architecture** | Engagements, Evaluations, Library, Activity, unified creation and contextual run workspace | 🟡 **next** |
-| **Research-ready runtime** | HTTP replay, confined PoC execution, tunnelling, fail-closed budgets and kill switches | ◻ planned after console foundation |
+| **Console architecture** | Engagements, Evaluations, Library, Activity, unified creation, contextual workspace and SSE | ✅ shipped |
+| **Research-ready runtime** | HTTP replay, confined PoC execution, tunnelling, fail-closed budgets and kill switches | 🟡 **next** |
 | **Evaluation workbench** | Agent registry, suites, trials, active episodes and GUI comparison of build N vs N+1 | ◻ planned |
 | **Held-out proof** | Repeated private challenge suite and recorded comparison workflow | ◻ planned |
 | **Deferred** | OAuth/multi-tenancy, live cloud/VM providers, purple-team, VNC and hosted-product concerns | ◻ deferred |

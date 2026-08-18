@@ -9,21 +9,21 @@
   <link rel="icon" type="image/png" href="assets/anvil_logo.png">
   
   <!-- SEO Meta Tags -->
-  <meta name="description" content="The neutral, open-source proving ground for agentic security. Point it at any repo, let a bring-your-own AI agent attack it in a contained arena, and get a scored, replayable, audited result.">
-  <meta name="keywords" content="cybersecurity, cyber range, AI agents, MCP gateway, pentesting, red team, blue team, FastAPI, Celery, Docker, OpenStack, AWS">
+  <meta name="description" content="The GUI-driven, bring-your-own-agent cyber evaluation arena. Provision a reproducible target, give a human or agent a contained research position, verify the evidence independently, and turn the session into a scored, replayable result.">
+  <meta name="keywords" content="cybersecurity, cyber range, AI agent evaluation, agent benchmark, MCP gateway, pentesting, security research, FastAPI, Celery, Docker">
 
   <!-- Open Graph / Facebook Link Previews -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://gianlucabassani.github.io/Nidavellir/">
   <meta property="og:title" content="Nidavellir · Agentic Arena Forge">
-  <meta property="og:description" content="The neutral, open-source proving ground for agentic security. Point it at any repo, let a bring-your-own AI agent attack it in a contained arena, and get a scored, replayable, audited result.">
+  <meta property="og:description" content="The GUI-driven, bring-your-own-agent cyber evaluation arena. Provision a reproducible target, give a human or agent a contained research position, verify the evidence independently, and turn the session into a scored, replayable result.">
   <meta property="og:image" content="https://gianlucabassani.github.io/Nidavellir/assets/anvil_logo.png">
 
   <!-- Twitter Link Previews -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:url" content="https://gianlucabassani.github.io/Nidavellir/">
   <meta name="twitter:title" content="Nidavellir · Agentic Arena Forge">
-  <meta name="twitter:description" content="The neutral, open-source proving ground for agentic security. Point it at any repo, let a bring-your-own AI agent attack it in a contained arena, and get a scored, replayable, audited result.">
+  <meta name="twitter:description" content="The GUI-driven, bring-your-own-agent cyber evaluation arena. Provision a reproducible target, give a human or agent a contained research position, verify the evidence independently, and turn the session into a scored, replayable result.">
   <meta name="twitter:image" content="https://gianlucabassani.github.io/Nidavellir/assets/anvil_logo.png">
   
   <!-- Web Fonts -->
@@ -466,152 +466,6 @@
       max-width: 600px;
       margin: 0 auto;
       font-size: 16px;
-    }
-
-    .gallery-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 24px;
-      margin-bottom: 40px;
-    }
-    @media (max-width: 900px) {
-      .gallery-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-    }
-    @media (max-width: 640px) {
-      .gallery-grid {
-        grid-template-columns: 1fr;
-        gap: 18px;
-      }
-    }
-    .gallery-card {
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      overflow: hidden;
-      box-shadow: var(--shadow);
-      display: flex;
-      flex-direction: column;
-      transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.25s ease, box-shadow 0.25s ease;
-      cursor: pointer;
-    }
-    .gallery-card:hover {
-      transform: translateY(-6px);
-      border-color: var(--accent);
-      box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.7), 0 0 20px -3px rgba(245, 165, 36, 0.25);
-    }
-    .gallery-img-wrapper {
-      position: relative;
-      width: 100%;
-      padding-top: 56.25%; /* 16:9 Aspect Ratio */
-      background: var(--ground-2);
-      overflow: hidden;
-      border-bottom: 1px solid var(--line-soft);
-    }
-    .gallery-img-wrapper img {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transition: transform 0.4s ease;
-    }
-    .gallery-card:hover .gallery-img-wrapper img {
-      transform: scale(1.03);
-    }
-    .gallery-info {
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      flex-grow: 1;
-    }
-    .gallery-info h3 {
-      font-size: 18px;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .gallery-info p {
-      font-size: 13.5px;
-      color: var(--muted);
-      line-height: 1.5;
-    }
-    .gallery-badge {
-      font-family: var(--mono);
-      font-size: 10px;
-      font-weight: 600;
-      text-transform: uppercase;
-      padding: 2px 8px;
-      border-radius: 4px;
-      background: var(--surface-3);
-      border: 1px solid var(--line);
-      color: var(--muted);
-    }
-
-    /* Lightbox Modal */
-    .lightbox {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(5, 7, 12, 0.95);
-      z-index: 1000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.25s ease;
-    }
-    .lightbox.active {
-      opacity: 1;
-      pointer-events: auto;
-    }
-    .lightbox-content {
-      position: relative;
-      max-width: 90%;
-      max-height: 85%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    .lightbox img {
-      max-width: 100%;
-      max-height: 80vh;
-      object-fit: contain;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-strong);
-      box-shadow: 0 24px 50px rgba(0, 0, 0, 0.8);
-      transform: scale(0.95);
-      transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-    }
-    .lightbox.active img {
-      transform: scale(1);
-    }
-    .lightbox-close {
-      position: absolute;
-      top: -45px;
-      right: 0;
-      color: var(--muted);
-      background: transparent;
-      border: none;
-      font-size: 30px;
-      cursor: pointer;
-      transition: color 0.15s ease;
-    }
-    .lightbox-close:hover {
-      color: var(--text);
-    }
-    .lightbox-caption {
-      color: var(--muted);
-      margin-top: 15px;
-      font-size: 14px;
-      text-align: center;
-      font-family: var(--font);
     }
 
     /* Shipped Functionality Grid */
@@ -1460,8 +1314,6 @@
       .cta-section { padding: 64px 0; }
       .cta-section h2 { font-size: 26px; }
 
-      .lightbox-content { max-width: 94%; }
-
       /* Docs reader */
       .docs-content { padding: 26px 18px 56px; }
       .markdown-body { font-size: 14.5px; }
@@ -1496,7 +1348,7 @@
        the hover-lift transforms so cards don't stick mid-animation */
     @media (hover: none) {
       .code-copy-btn { opacity: 1; }
-      .gallery-card:hover, .pillar-card:hover, .feature-card:hover,
+      .pillar-card:hover, .feature-card:hover,
       .flow-step:hover, .hero-logo-card:hover,
       .cta-btn:hover, .btn--primary:hover { transform: none; }
     }
@@ -1540,10 +1392,10 @@
             <span class="hero-eyebrow">Open-source · MCP-native · Bring-your-own-agent</span>
             <h1>An arena for testing AI security agents</h1>
             <p class="hero-desc">
-              Point Nidavellir at a repository. It stands the service up in a
-              <strong>contained arena</strong>, connects a bring-your-own AI agent over an
-              <strong>MCP gateway</strong>, and records every action to an append-only audit trace.
-              It runs fully local on Docker, with no cloud account required.
+              Nidavellir provisions a reproducible target in a <strong>contained arena</strong>, gives a
+              human or a bring-your-own agent a scoped research position over an <strong>MCP gateway</strong>,
+              and independently verifies what actually happened. Every engagement ends as a scored,
+              replayable, auditable record. The AI is the system under test — the arena is the referee.
             </p>
 
             <div class="hero-cta">
@@ -1614,92 +1466,77 @@
         <div class="container">
           <div class="section-head">
             <h2>How it works</h2>
-            <p>One end-to-end loop, running fully local: point at a repo, contain it, connect an agent, score the result.</p>
+            <p>One end-to-end loop, complete in the browser and running fully local: define the engagement, contain the target, research it, and score what the evidence supports.</p>
           </div>
 
           <div class="flow-grid">
             <div class="flow-step">
-              <span class="flow-num">01 / POINT</span>
-              <h3>at any repo</h3>
-              <p>Give it a public repository (or paste a spec, or import a Vulhub CVE env). Repo-introspection plus a deterministic-first build pipeline stand up a healthy, version-pinned service.</p>
-              <span class="flow-tag" style="color:var(--ok);border-color:rgba(52,211,153,.25);background:rgba(52,211,153,.06);">Shipped · M1</span>
-            </div>
-            <div class="flow-step">
-              <span class="flow-num">02 / CONTAIN</span>
-              <h3>in a sealed arena</h3>
-              <p>Nodes run on egress-locked network segments; a CI test proves they can't reach the internet or cloud metadata. Generated infrastructure is never auto-deployed unreviewed.</p>
+              <span class="flow-num">01 / DEFINE</span>
+              <h3>the engagement</h3>
+              <p>Pick a purpose — benchmark, discovery, calibration, or manual research — then a challenge or an authorized target: a Git object, an OCI digest, a source bundle, or an imported Vulhub CVE environment. Purpose, participants, and the time box are recorded as immutable intent before anything runs.</p>
               <span class="flow-tag" style="color:var(--ok);border-color:rgba(52,211,153,.25);background:rgba(52,211,153,.06);">Shipped</span>
             </div>
             <div class="flow-step">
-              <span class="flow-num">03 / ATTACK</span>
-              <h3>with your agent</h3>
-              <p>Your agent connects over an MCP gateway as attacker, MITM, or defender. Every action is scope-enforced, budget-metered, key↔arena-bound, with an operator kill-switch and a full JSONL trace.</p>
+              <span class="flow-num">02 / PROVISION</span>
+              <h3>a contained arena</h3>
+              <p>Repo introspection and a deterministic-first build pipeline stand the service up, version-pinned. Nodes run on egress-locked segments proven by a containment test; generated infrastructure is never deployed unreviewed, and setup runs consent-gated with a hard privilege boundary.</p>
               <span class="flow-tag" style="color:var(--ok);border-color:rgba(52,211,153,.25);background:rgba(52,211,153,.06);">Shipped</span>
             </div>
             <div class="flow-step">
-              <span class="flow-num">04 / SCORE</span>
-              <h3>on real evidence</h3>
-              <p>A monitor and crash oracle turn crashes, sanitizer aborts, and programmatically-confirmed findings into a structured, replayable verdict, scorable even with no known-CVE list — with an operator confirm/refute path for the findings a validator can't auto-prove.</p>
-              <span class="flow-tag" style="color:var(--ok);border-color:rgba(52,211,153,.25);background:rgba(52,211,153,.06);">Shipped · M2</span>
+              <span class="flow-num">03 / RESEARCH</span>
+              <h3>with an agent or by hand</h3>
+              <p>A bring-your-own agent connects through the gateway as attacker, MITM, or defender — scope-enforced, budget-metered, key&#8596;arena-bound, fully traced. Git change intelligence, hashed patch evidence, bounded file transfer, and a disposable headless browser are already there; an operator can drive the same arena with no model at all.</p>
+              <span class="flow-tag" style="color:var(--ok);border-color:rgba(52,211,153,.25);background:rgba(52,211,153,.06);">Shipped</span>
+            </div>
+            <div class="flow-step">
+              <span class="flow-num">04 / VERIFY</span>
+              <h3>before anything is scored</h3>
+              <p>A crash oracle turns crashes, sanitizer aborts, and unhandled 5xx into evidence. Deterministic validators confirm a finding — reflected XSS counts only when JavaScript is observed executing in a real browser. The operator verdict is authoritative, and the run exports as an Inspect-style score with an OpenInference-aligned trace.</p>
+              <span class="flow-tag" style="color:var(--ok);border-color:rgba(52,211,153,.25);background:rgba(52,211,153,.06);">Shipped</span>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- SCREENSHOT GALLERY -->
-      <section class="showcase-section" id="screenshots">
+      <!-- INSIDE THE CONSOLE -->
+      <section class="showcase-section" id="console">
         <div class="container">
           <div class="section-head">
-            <h2>System Screenshots</h2>
-            <p>Explore the console dashboard, live machine capacity metrics, and scenario inventory pages.</p>
+            <h2>Inside the console</h2>
+            <p>Every normal workflow is complete in the browser. The console presents and drives; orchestration, persistence, and judgment stay behind the API.</p>
           </div>
-          
-          <div class="gallery-grid">
-            <!-- Card 1 -->
-            <div class="gallery-card" onclick="openLightbox('assets/dashboard.png', 'Nidavellir dashboard showing fleet nodes, active arenas, and real-time event logging.')">
-              <div class="gallery-img-wrapper">
-                <img src="assets/dashboard.png" alt="Nidavellir Console Dashboard" onerror="this.parentNode.innerHTML='<div style=\'position:absolute;width:100%;height:100%;display:grid;place-items:center;color:var(--faint);font-family:var(--mono);font-size:12px;\'>[ dashboard.png ]</div>'">
-              </div>
-              <div class="gallery-info">
-                <h3>Console Dashboard <span class="gallery-badge">Fleet Live</span></h3>
-                <p>Track running scenarios, agent instances, worker capacity metrics, and stream real-time orchestration events.</p>
-              </div>
-            </div>
-            
-            <!-- Card 2 -->
-            <div class="gallery-card" onclick="openLightbox('assets/inventory.png', 'The Scenario Inventory screen showcasing layout models, machine counts, and detailed subnet routing paths.')">
-              <div class="gallery-img-wrapper">
-                <img src="assets/inventory.png" alt="Nidavellir Scenario Inventory" onerror="this.parentNode.innerHTML='<div style=\'position:absolute;width:100%;height:100%;display:grid;place-items:center;color:var(--faint);font-family:var(--mono);font-size:12px;\'>[ inventory.png ]</div>'">
-              </div>
-              <div class="gallery-info">
-                <h3>Scenario Inventory <span class="gallery-badge">Topology</span></h3>
-                <p>View pre-configured vulnerability maps, topology scopes, segments, nodes, and available network access zones.</p>
-              </div>
-            </div>
-            
-            <!-- Card 3 -->
-            <div class="gallery-card" onclick="openLightbox('assets/launch.png', 'Arena configuration details, TTL configuration parameters, stance options, and launch controller.')">
-              <div class="gallery-img-wrapper">
-                <img src="assets/launch.png" alt="Arena Orchestrator Launch" onerror="this.parentNode.innerHTML='<div style=\'position:absolute;width:100%;height:100%;display:grid;place-items:center;color:var(--faint);font-family:var(--mono);font-size:12px;\'>[ launch.png ]</div>'">
-              </div>
-              <div class="gallery-info">
-                <h3>Deployment Controller <span class="gallery-badge">Deploy</span></h3>
-                <p>Configure provider instances (docker-local, AWS, OpenStack), input parameters, wire specific stances, and launch targets.</p>
-              </div>
-            </div>
-            
-            <!-- Card 4 -->
-            <div class="gallery-card" onclick="openLightbox('assets/arena.png', 'Inside Arena View showing live topology, active segments, and instance controls.')">
-              <div class="gallery-img-wrapper">
-                <img src="assets/arena.png" alt="Inside Arena View" onerror="this.parentNode.innerHTML='<div style=\'position:absolute;width:100%;height:100%;display:grid;place-items:center;color:var(--faint);font-family:var(--mono);font-size:12px;\'>[ arena.png ]</div>'">
-              </div>
-              <div class="gallery-info">
-                <h3>Arena Control <span class="gallery-badge">Live</span></h3>
-                <p>Monitor specific arena details, interact with running instances, and review network segment routing.</p>
-              </div>
-            </div>
 
-
+          <div class="features-grid">
+            <div class="feature-card">
+              <span class="card-tag">Navigation</span>
+              <h3>One home per function</h3>
+              <p>Engagements, Evaluations, Library, Activity, and Administration. A global Create action starts an engagement; nothing shipped is orphaned in an implementation-era page.</p>
+            </div>
+            <div class="feature-card">
+              <span class="card-tag">Creation</span>
+              <h3>One engagement journey</h3>
+              <p>Purpose, source, participants, and an enforced time box compose in one flow, then hand off to the same validated builder for every predefined, custom, generated, Vulhub, Git, OCI, or bundle path.</p>
+            </div>
+            <div class="feature-card">
+              <span class="card-tag">Workspace</span>
+              <h3>One surface per concern</h3>
+              <p>Overview, Live, Target, Findings, Evidence, Changes, Agent, Trace, Score, Infrastructure — only the tabs that apply. Setup is a phase, not a permanent block, and the tab lives in the URL.</p>
+            </div>
+            <div class="feature-card">
+              <span class="card-tag">Live state</span>
+              <h3>Streamed, not polled</h3>
+              <p>Arena state, audit events, agent actions, findings, and monitor signals arrive over SSE, resuming exactly on reconnect. No client timers sit behind the live view.</p>
+            </div>
+            <div class="feature-card">
+              <span class="card-tag">Activity</span>
+              <h3>Cross-engagement indexes</h3>
+              <p>Findings and Evidence span every engagement — verdict facets, search, artifact provenance, and monitor signals — and each row returns to the workspace tab that owns it.</p>
+            </div>
+            <div class="feature-card">
+              <span class="card-tag">Records</span>
+              <h3>Evidence outlives the arena</h3>
+              <p>When an arena is destroyed its engagement becomes a read-only record: no live actions, no stale claims about running nodes, but findings, evidence, score, and trace stay reviewable.</p>
+            </div>
           </div>
         </div>
       </section>
@@ -1708,38 +1545,44 @@
       <section class="showcase-section" id="pillars">
         <div class="container">
           <div class="section-head">
-            <h2>Three Architectural Pillars</h2>
-            <p>Nidavellir is engineered around modularity, security containment, and deep telemetry integration.</p>
+            <h2>Three engine pillars</h2>
+            <p>Everything above the engine — engagements today, repeated evaluations next — reuses the same arena, evidence, and scoring substrate.</p>
           </div>
-          
+
           <div class="pillars-grid">
             <!-- Pillar 1 -->
             <div class="pillar-card defender">
-              <div class="pillar-icon" style="color:var(--defender);">01 // Topologies</div>
-              <h3>Dynamic Topologies</h3>
+              <div class="pillar-icon" style="color:var(--defender);">01 // Topologies &amp; targets</div>
+              <h3>Reproducible by identity</h3>
               <p>
-                Author scenarios inside data-defined YAML templates. Topologies compile on-demand to Docker local engines,
-                local QEMU/Libvirt VMs, OpenStack, or AWS instances using dynamic provider drivers. Supports arbitrary N-node segment setups.
+                Provider-neutral scenarios describe arbitrary nodes and network segments, compiled by driver to
+                docker-local containers today and to VM or cloud providers later. Targets resolve to immutable
+                identities — a Git object, an OCI digest, a hashed source bundle, a pinned package — so a result
+                names exactly what was tested.
               </p>
             </div>
-            
+
             <!-- Pillar 2 -->
             <div class="pillar-card attacker">
-              <div class="pillar-icon" style="color:var(--attacker);">02 // Gateways</div>
-              <h3>MCP Agent Gateways</h3>
+              <div class="pillar-icon" style="color:var(--attacker);">02 // Participant runtime</div>
+              <h3>Scoped, contained, traced</h3>
               <p>
-                Secure and regulate Model Context Protocol (MCP) clients. Every action runs through gateway sandboxes
-                enforcing stance capabilities, per-arena key&#8596;arena bindings, an operator kill-switch, and logging to append-only audit traces.
+                Humans and external agents enter through explicit stances — attacker, MITM, defender — with
+                server-enforced key&#8596;arena bindings, narrow capabilities, no egress by default, and an
+                append-only trace. Containment is the primary control, not a setting the participant can talk
+                its way past.
               </p>
             </div>
-            
+
             <!-- Pillar 3 -->
             <div class="pillar-card mitm">
-              <div class="pillar-icon" style="color:var(--mitm);">03 // Compiler</div>
-              <h3>Zero-to-Prompt Compile</h3>
+              <div class="pillar-icon" style="color:var(--mitm);">03 // Evidence &amp; comparison</div>
+              <h3>Proof outranks claims</h3>
               <p>
-                Translate plain text descriptions into operational YAML topology schemas using large language models. 
-                Validates generated specifications against strict schemas before exposing infrastructure.
+                Monitor signals, deterministic validators, content-addressed artifacts, and structured scores
+                decide what a run achieved. Unknown is not refuted, discovery mode never pretends to know false
+                negatives, and immutable identities plus replay are what make an agent-version comparison
+                explainable instead of anecdotal.
               </p>
             </div>
           </div>
@@ -1751,7 +1594,7 @@
         <div class="container">
           <div class="section-head">
             <h2>System Architecture</h2>
-            <p>Nidavellir coordinates components to maintain isolated ranges and expose them safely to AI agents.</p>
+            <p>A GUI-driven product on an API-backed architecture: the console presents and drives, while orchestration, persistence, validation, and scoring stay behind the service boundary.</p>
           </div>
           
           <div class="architecture-box">
@@ -1763,13 +1606,15 @@
                 <!-- Nodes -->
                 <!-- Console -->
                 <rect x="30" y="80" width="130" height="70" rx="6" fill="#111726" stroke="#222B40" stroke-width="1.5"/>
-                <text x="95" y="112" fill="#E7EBF3" font-family="var(--mono)" font-size="13" font-weight="600" text-anchor="middle">Console</text>
-                <text x="95" y="132" fill="#586073" font-family="var(--mono)" font-size="10.5" text-anchor="middle">Flask Web UI</text>
+                <text x="95" y="108" fill="#E7EBF3" font-family="var(--mono)" font-size="13" font-weight="600" text-anchor="middle">Console</text>
+                <text x="95" y="126" fill="#586073" font-family="var(--mono)" font-size="10.5" text-anchor="middle">Flask · Jinja</text>
+                <text x="95" y="140" fill="#3D9BFF" font-family="var(--mono)" font-size="9.5" text-anchor="middle">SSE live state</text>
                 
                 <!-- Orchestrator -->
                 <rect x="250" y="80" width="150" height="70" rx="6" fill="#111726" stroke="#F5A524" stroke-width="1.5"/>
-                <text x="325" y="112" fill="#E7EBF3" font-family="var(--mono)" font-size="13" font-weight="600" text-anchor="middle">Orchestrator</text>
-                <text x="325" y="132" fill="#F5A524" font-family="var(--mono)" font-size="10.5" text-anchor="middle">FastAPI Core</text>
+                <text x="325" y="108" fill="#E7EBF3" font-family="var(--mono)" font-size="13" font-weight="600" text-anchor="middle">Orchestrator</text>
+                <text x="325" y="126" fill="#F5A524" font-family="var(--mono)" font-size="10.5" text-anchor="middle">FastAPI Core</text>
+                <text x="325" y="140" fill="#586073" font-family="var(--mono)" font-size="9.5" text-anchor="middle">events · score</text>
                 
                 <!-- Celery Worker -->
                 <rect x="490" y="80" width="150" height="70" rx="6" fill="#111726" stroke="#222B40" stroke-width="1.5"/>
@@ -1778,14 +1623,15 @@
 
                 <!-- Providers -->
                 <rect x="710" y="30" width="140" height="70" rx="6" fill="#111726" stroke="#222B40" stroke-width="1.5"/>
-                <text x="780" y="62" fill="#E7EBF3" font-family="var(--mono)" font-size="13" font-weight="600" text-anchor="middle">Range Providers</text>
-                <text x="780" y="82" fill="#3D9BFF" font-family="var(--mono)" font-size="10" text-anchor="middle">Docker / AWS / OpenStack</text>
+                <text x="780" y="58" fill="#E7EBF3" font-family="var(--mono)" font-size="13" font-weight="600" text-anchor="middle">Provider drivers</text>
+                <text x="780" y="76" fill="#3D9BFF" font-family="var(--mono)" font-size="10" text-anchor="middle">docker-local · mock</text>
+                <text x="780" y="90" fill="#586073" font-family="var(--mono)" font-size="9" text-anchor="middle">cloud / VM deferred</text>
 
                 <!-- MCP Gateways -->
                 <rect x="710" y="145" width="140" height="75" rx="6" fill="#111726" stroke="#FF5C72" stroke-width="1.5"/>
                 <text x="780" y="177" fill="#E7EBF3" font-family="var(--mono)" font-size="13" font-weight="600" text-anchor="middle">MCP Gateways</text>
                 <text x="780" y="197" fill="#FF5C72" font-family="var(--mono)" font-size="10" text-anchor="middle">Stances & Budgets</text>
-                <text x="780" y="210" fill="#586073" font-family="var(--mono)" font-size="9" text-anchor="middle">Attacker / MITM / Defender</text>
+                <text x="780" y="210" fill="#586073" font-family="var(--mono)" font-size="8.5" text-anchor="middle">attacker · MITM · defender</text>
                 
                 <!-- Flows (Arrows) -->
                 <!-- Console <-> Orchestrator -->
@@ -1817,11 +1663,14 @@
             </div>
             
             <div class="arch-description">
-              <h4>Modular Decoupled Subsystems</h4>
+              <h4>Modular, decoupled subsystems</h4>
               <p>
-                The Flask web console communicates with the FastAPI orchestrator via REST API calls. Tasks are queued inside 
-                Redis and dispatched to Celery workers, which handle Docker container builds, AWS AMI deployment, or OpenStack VM configuration. 
-                External AI agents connect exclusively through the gateway system which isolates network requests.
+                The console calls the orchestrator over REST and streams live arena state and audit events back over SSE.
+                The orchestrator records every action to an append-only event spine and queues work through Redis to Celery
+                workers, which drive the provider drivers that build and tear down arenas. External agents reach an arena
+                only through the MCP gateway, which enforces stance capabilities, key&#8596;arena bindings, and budgets.
+                docker-local is the path whose full lifecycle is regularly live-verified; cloud and VM drivers remain
+                deliberately deferred skeletons.
               </p>
             </div>
           </div>
@@ -1840,7 +1689,7 @@
             <div class="feature-card">
               <span class="card-tag">Teams building agents</span>
               <h3>A harness for your own agent</h3>
-              <p>Test, eval, and regression-check the security agent you're building, so you can see how a build performs across versions on targets you choose.</p>
+              <p>Test and regression-check the security agent you are building against targets you choose, with the model, scaffold, tools, and budgets recorded alongside the score — so a version comparison means something.</p>
             </div>
             <div class="feature-card">
               <span class="card-tag">Enterprises</span>
@@ -1850,7 +1699,7 @@
             <div class="feature-card">
               <span class="card-tag">Safety &amp; eval researchers</span>
               <h3>Reproducible cyber evals</h3>
-              <p>Cyber-offense evals with exportable traces in OpenTelemetry-GenAI and OpenInference shape, ready to flow into Langfuse, Phoenix, or Braintrust.</p>
+              <p>Cyber-offense evals on active challenges rather than static snapshots, with Inspect-style scores and traces in OpenTelemetry-GenAI and OpenInference shape, ready to flow into Langfuse, Phoenix, or Braintrust.</p>
             </div>
             <div class="feature-card">
               <span class="card-tag">AppSec &amp; red teams</span>
@@ -1889,107 +1738,87 @@
       <section class="showcase-section" id="roadmap">
         <div class="container">
           <div class="section-head">
-            <h2>Development Roadmap</h2>
-            <p>Two horizons: a personal open-source flagship that proves the thesis, graduating into an enterprise's internal harness for testing the agents they build.</p>
+            <h2>Development roadmap</h2>
+            <p>The engine and the console are shipped. What remains is the research runtime that completes an agent-grade arena, then the workbench that turns single engagements into repeated, comparable evaluations.</p>
           </div>
-          
+
           <div class="roadmap-timeline">
-            <div class="roadmap-horizon">Horizon 1 · Flagship (prove the thesis)</div>
+            <div class="roadmap-horizon">Shipped · the engine and the product surface</div>
 
-            <!-- Foundation -->
             <div class="roadmap-item complete">
               <div class="roadmap-badge"></div>
               <div class="roadmap-meta">
-                <span class="roadmap-phase">Foundation</span>
+                <span class="roadmap-phase">Engine</span>
                 <span class="roadmap-status">Shipped</span>
               </div>
               <div class="roadmap-content">
-                <h3>The Substrate & Three Pillars</h3>
-                <p>The production control plane plus all three pillars: the v3 dynamic topology engine and docker-local compiler (egress-locked container ranges in seconds); the MCP agent gateway with attacker / MITM / defender / configurator stances, server-enforced per-arena key&#8596;arena bindings, an operator kill-switch, and an append-only audit trace; and zero-to-prompt scenario generation with the software-under-test wizard and the operator co-pilot.</p>
+                <h3>Arenas, target intake, and the control plane</h3>
+                <p>A FastAPI orchestrator over Redis/Celery workers and provider drivers, with an explicit arena state machine, an append-only event spine, TTL reaping, API-key roles, and encryption at rest. Scenarios describe arbitrary nodes and segments; targets resolve to immutable Git objects, digest-pinned OCI images, hashed source bundles, or named packages, and repo introspection stands a service up deterministically — falling back to verified Dockerfile synthesis that only returns an image that actually built.</p>
               </div>
             </div>
 
-            <!-- M1 -->
             <div class="roadmap-item complete">
               <div class="roadmap-badge"></div>
               <div class="roadmap-meta">
-                <span class="roadmap-phase">M1</span>
+                <span class="roadmap-phase">Evidence</span>
                 <span class="roadmap-status">Shipped</span>
               </div>
               <div class="roadmap-content">
-                <h3>Reliable Repo-to-Service Provisioning</h3>
-                <p>Point Nidavellir at any repo and get a healthy, version-pinned service. A repo-introspection step grounds the build so it stops guessing; the pipeline honors an existing Dockerfile, falls back to verified LLM Dockerfile synthesis with a build-and-rollback loop, and can install a named package. Every image is pinned, arena-labeled, and reclaimed.</p>
+                <h3>Monitoring, validators, scoring, and export</h3>
+                <p>A crash oracle turns crashes, sanitizer aborts, unhandled 5xx, and resource exhaustion into deduplicated evidence, so a target with no known-CVE list is still scorable. Deterministic validators confirm findings — reflected XSS counts only when a platform-owned payload is observed executing in a real headless browser. Runs carry an Inspect-style structured score with milestone progress, reproducible PoCs, an operator confirm/refute path, and OpenInference-aligned trace and dataset rows.</p>
               </div>
             </div>
 
-            <!-- M2 -->
             <div class="roadmap-item complete">
               <div class="roadmap-badge"></div>
               <div class="roadmap-meta">
-                <span class="roadmap-phase">M2</span>
+                <span class="roadmap-phase">Console C1–C4</span>
                 <span class="roadmap-status">Shipped</span>
               </div>
               <div class="roadmap-content">
-                <h3>Deep Monitoring, Crash Oracle & Scoring</h3>
-                <p>A monitor and crash oracle turn crashes, sanitizer aborts, and unhandled 5xx into scored evidence, so a target with no known-CVE list is still scorable. Deterministic validators confirm each finding before it counts, and a structured, machine-parseable <code>Score</code> — benchmark or discovery mode, with a milestone Progress Rate that scores even a failed run — replaces win/lose scoring. The moat.</p>
+                <h3>The GUI product model</h3>
+                <p>Grouped navigation — Engagements, Evaluations, Library, Activity, Administration — with one unified engagement journey that carries purpose, source, participants, and an enforced time box into every launch path. The arena page became a contextual workspace whose live state streams over SSE, destroyed arenas became read-only records that keep their evidence, and Home plus the cross-engagement Findings and Evidence indexes are composed from the product objects themselves.</p>
               </div>
             </div>
 
-            <!-- M3 -->
-            <div class="roadmap-item complete">
-              <div class="roadmap-badge"></div>
-              <div class="roadmap-meta">
-                <span class="roadmap-phase">M3</span>
-                <span class="roadmap-status">Shipped</span>
-              </div>
-              <div class="roadmap-content">
-                <h3>Benchmark & Eval Layer</h3>
-                <p>Every run becomes a comparable, replayable benchmark with model, scaffold, cost, and pass@k reported together. Shipped and verified end-to-end: an eval-export that projects each run to a Langfuse/Phoenix-ready dataset row, OpenInference-aligned traces, a bring-your-own reference harness that plays an arena autonomously and replays deterministically, findings that carry a reproducible PoC, and an operator confirm/refute path for the vulnerabilities a validator can't auto-prove.</p>
-              </div>
-            </div>
+            <div class="roadmap-horizon second">Next · agent-grade research, then comparable evaluation</div>
 
-            <div class="roadmap-horizon second">Horizon 2 · Internal harness (test the agents you build)</div>
-
-            <!-- M4 -->
             <div class="roadmap-item">
               <div class="roadmap-badge"></div>
               <div class="roadmap-meta">
-                <span class="roadmap-phase">M4</span>
+                <span class="roadmap-phase">R1–R3</span>
+                <span class="roadmap-status">Next</span>
+              </div>
+              <div class="roadmap-content">
+                <h3>Research-ready runtime</h3>
+                <p>The tools a serious offensive agent still needs, each arena-scoped and fail-closed: structured HTTP inspect, replay, and modify that accepts a node and a relative path rather than a caller-supplied URL; confined PoC execution in disposable, resource-capped containers with no filesystem or egress; foothold-scoped SSH forwards; durable cross-process step, time, token, and cost budgets; and per-arena plus system-wide stop that drains work predictably.</p>
+              </div>
+            </div>
+
+            <div class="roadmap-item">
+              <div class="roadmap-badge"></div>
+              <div class="roadmap-meta">
+                <span class="roadmap-phase">E1–E5</span>
                 <span class="roadmap-status">Planned</span>
               </div>
               <div class="roadmap-content">
-                <h3>Agent-Grade Arena Tooling & Fail-Closed Guardrails</h3>
-                <p>The tools a serious offensive agent needs, as first-class MCP schemas: a headless browser (doubling as the XSS validator), a code-exec sandbox for PoCs, an HTTP intercept proxy, file transfer, and SSH tunnelling, plus durable, fail-closed budgets and a two-scope kill-switch. This addresses whether the tooling is enough for a real agent to do real work.</p>
+                <h3>Agent evaluation workbench</h3>
+                <p>Durable records for agent builds, suites, evaluations, runs, and trials, plus generic drivers for interactive, containerized, and webhook-shaped agents. From the browser an operator selects a baseline and a candidate build, runs them over a held-out suite for repeated trials, and gets paired comparisons of verified capability, regressions, detection latency, cost, and safety — with active challenges that stage releases so reactive agents can be measured, not only one-shot exploits.</p>
               </div>
             </div>
 
-            <!-- M5 -->
             <div class="roadmap-item">
               <div class="roadmap-badge"></div>
               <div class="roadmap-meta">
-                <span class="roadmap-phase">M5</span>
+                <span class="roadmap-phase">P1</span>
                 <span class="roadmap-status">Planned</span>
               </div>
               <div class="roadmap-content">
-                <h3>Regression & Eval Pipeline</h3>
-                <p>Run agent version N against N+1 on the same pinned arena suite and get a diffable report of score deltas, new regressions, and cost per arena. One-click export of any run into Langfuse, Phoenix, or Braintrust, with deterministic replay at scale. Designed to run every time the agent changes.</p>
+                <h3>Held-out flagship proof</h3>
+                <p>A private, held-out challenge set — public labs are calibration only — with a published leakage policy, disclosed scaffolding, repeated-trial methodology, and stated uncertainty. The artifact to publish is a reproducible comparison between two agent versions, not a single successful exploit.</p>
               </div>
             </div>
 
-            <!-- M6 -->
-            <div class="roadmap-item">
-              <div class="roadmap-badge"></div>
-              <div class="roadmap-meta">
-                <span class="roadmap-phase">M6</span>
-                <span class="roadmap-status">Opportunistic</span>
-              </div>
-              <div class="roadmap-content">
-                <h3>LLM-Application Targets</h3>
-                <p>A new arena archetype where the victim is an LLM application, with packs mapped to the OWASP Top 10 for LLM and Agentic Applications: prompt injection, system-prompt leakage, excessive agency, and RAG attacks, each scored from the app's own logs. Directly relevant to testing the agentic products an enterprise builds.</p>
-              </div>
-            </div>
-
-            <!-- Deferred -->
             <div class="roadmap-item deferred">
               <div class="roadmap-badge"></div>
               <div class="roadmap-meta">
@@ -1997,8 +1826,8 @@
                 <span class="roadmap-status">Out of scope for now</span>
               </div>
               <div class="roadmap-content">
-                <h3>Product & Multi-Tenant Concerns</h3>
-                <p>MCP OAuth 2.1, multi-tenant RBAC / SSO / workspaces, real cloud and VM hosting, in-browser VNC access, and purple-team detection scoring are deliberately cut, since none are needed for a personal flagship or a single-team harness. They return only if Nidavellir becomes a product or serves multiple teams.</p>
+                <h3>Product and multi-tenant concerns</h3>
+                <p>MCP OAuth 2.1 and third-party tool-supply-chain defense, multi-tenant workspaces with SSO and graduated RBAC, live cloud and VM providers, multi-agent red-versus-blue, in-browser VNC, and public leaderboards. None are needed for a single-team, self-hosted evaluation product; they return only for a concrete need.</p>
               </div>
             </div>
           </div>
@@ -2018,6 +1847,7 @@
             <div class="docs-section-title">Start here</div>
             <ul class="docs-nav-list">
               <li class="docs-nav-item active" data-doc="OVERVIEW.md" onclick="loadDoc('OVERVIEW.md')">Overview</li>
+              <li class="docs-nav-item" data-doc="VISION.md" onclick="loadDoc('VISION.md')">Vision &amp; scope</li>
             </ul>
           </div>
           <div>
@@ -2054,15 +1884,6 @@
     </div>
 
   </main>
-
-  <!-- LIGHTBOX SCREENSHOT VIEWER -->
-  <div id="lightbox-modal" class="lightbox" onclick="closeLightbox()">
-    <div class="lightbox-content" onclick="event.stopPropagation()">
-      <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
-      <img id="lightbox-img" src="" alt="Zoomed Screenshot">
-      <div id="lightbox-desc" class="lightbox-caption"></div>
-    </div>
-  </div>
 
   <!-- FOOTER -->
   <footer>
@@ -2108,22 +1929,6 @@
       }
     });
 
-    // Lightbox triggers
-    function openLightbox(src, desc) {
-      const modal = document.getElementById('lightbox-modal');
-      const img = document.getElementById('lightbox-img');
-      const caption = document.getElementById('lightbox-desc');
-      
-      img.src = src;
-      caption.innerText = desc;
-      modal.classList.add('active');
-    }
-
-    // Close Lightbox
-    function closeLightbox() {
-      const modal = document.getElementById('lightbox-modal');
-      modal.classList.remove('active');
-    }
 
     // Tab Views Switch (Showcase vs Docs)
     function switchView(viewName) {

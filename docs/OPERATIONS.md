@@ -82,25 +82,38 @@ Key environment variables (see [`.env.example`](../.env.example)):
 
 ## The console
 
-- **Dashboard** — fleet KPIs, host capacity, source-split live activity.
-- **Arenas** — running arenas (open / destroy) + archive.
-- **Launch** — predefined · custom build · Vulhub import · paste spec · software-under-test.
-- **Inventory** — scenario packs with the machines inside + topology preview.
-- **Logs** — append-only audit, split by source (agent / human / system).
-- **Agents** — BYO agents connected via the MCP gateway, by stance and arena.
-- **Settings / Profile** — model connection (BYO key), preferences, identity.
+- **Home** — live engagements, findings awaiting a verdict, failed runs and
+  containment warnings, provider/capacity health, and source-split activity.
+- **Engagements** — running and archived engagements, plus **New engagement**:
+  purpose · source · participants · time box, then the builder for predefined,
+  custom, generated, Vulhub, Git, OCI, or local-bundle paths.
+- **Evaluations** — reserved for the repeated-trial workbench (E1–E5); the route
+  exists, its durable records do not yet.
+- **Library** — Challenges (scenario packs with machines + topology preview);
+  Targets and Agents are reserved for the target and agent-build registries.
+- **Activity** — cross-engagement Findings and Evidence indexes, connected BYO
+  agents by stance and arena, and the append-only audit trail split by source.
+- **Administration** — settings and model connection (BYO key); providers and
+  security are reserved destinations.
+
+Opening an engagement gives the **workspace**: Overview · Live · Target ·
+Findings · Evidence · Changes · Agent · Trace · Score · Infrastructure, with only
+the applicable tabs shown and the active tab in the URL (`#findings` deep-links).
+Live state, audit events, agent actions, findings, and monitor signals stream over
+SSE. A destroyed arena stays open as a read-only record: no live actions, but its
+findings, evidence, score, and trace remain reviewable.
 
 ## Connect your agent & review the engagement
 
-Open an active arena and use the **Agent positioning** card to authorize a
+Open an active engagement, go to the **Agent** tab, and use the **Agent positioning** card to authorize a
 bring-your-own agent (attacker / MITM / defender) — enter your **agent key's name**
 (from `auth.py create-key <name> agent`), pick a stance, and Authorize. The card's
 recipe gives a one-line `claude mcp add --transport http nidavellir-arena <gateway>`
 and a downloadable `.mcp.json` — no hand-written config. Then tell your agent to work
-the arena (pass the `arena_id`); every tool call streams into **Live activity**,
+the arena (pass the `arena_id`); every tool call streams into the **Live** tab,
 where you can Pause or Revoke.
 
-The **Findings** card lists what the agent submitted plus any operator-entered
+The **Findings** tab lists what the agent submitted plus any operator-entered
 findings. For each, **confirm** or **refute** it — an operator *confirmed* is
 authoritative and counts toward the score (it flips the `verified_exploit` milestone),
 which closes the gap for real web vulns a deterministic validator can't auto-prove.

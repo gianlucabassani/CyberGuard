@@ -123,11 +123,10 @@ MCP gateway / external driver              monitor + validators
 
 ---
 
-## Console direction
+## The console
 
-The current console grew around implementation increments—Dashboard, Arenas,
-Launch, SUT, Inventory, Logs, and Agents. Before adding suites, trials, and
-comparisons, it is being reorganized around operator intent:
+The console is organized around operator intent rather than implementation
+increments:
 
 ```text
 Home
@@ -138,16 +137,22 @@ Activity → Findings · Evidence · Audit trail
 Administration
 ```
 
-Launch and SUT become one contextual New Engagement wizard. The large arena page
-becomes a shared engagement/run workspace:
+One New Engagement journey composes purpose, source, participants, and an enforced
+time box, then hands off to the validated builder for every launch path. An
+engagement opens as a contextual workspace:
 
 ```text
 Overview · Live · Target · Findings · Evidence · Changes
 Agent · Trace · Score · Infrastructure
 ```
 
-The migration preserves existing backend flows and routes until replacements
-reach feature parity. See [ADR-0012](./adr/0012-gui-first-product-model.md).
+Only applicable tabs render, setup is a phase rather than a permanent block, live
+state and audit events stream over SSE, and a destroyed arena becomes a read-only
+record whose evidence stays reviewable. Activity carries cross-engagement Findings
+and Evidence indexes; legacy routes remain valid. Evaluations, the Targets and
+Agents libraries, and the administration destinations are reserved routes whose
+durable data models ship with E1–E5. See
+[ADR-0012](./adr/0012-gui-first-product-model.md).
 
 ---
 
@@ -156,10 +161,11 @@ reach feature parity. See [ADR-0012](./adr/0012-gui-first-product-model.md).
 - **Shipped:** dynamic Docker arenas, SUT provisioning, secure target intake,
   setup gates, monitoring, validators, structured scoring, findings/PoCs,
   eval export, reference harness, batch execution, replay, Git evidence,
-  file transfer, and target-scoped browser tooling.
-- **Next:** console information architecture, unified engagement creation, and
-  contextual engagement/run workspace.
-- **Then:** HTTP replay/modify, confined PoC sandbox, tunnelling, durable budgets
+  file transfer, target-scoped browser tooling, and the GUI product model.
+- **Shipped console:** grouped navigation, unified engagement creation, the
+  contextual engagement/run workspace with SSE live state, an object-driven Home,
+  and cross-engagement Findings/Evidence indexes.
+- **Next:** HTTP replay/modify, confined PoC sandbox, tunnelling, durable budgets
   and kill switches; followed by the GUI evaluation workbench.
 - **Evaluation gap:** durable Agent build/Suite/Evaluation/Run/Trial records,
   active episode schedules, and paired N-vs-N+1 comparison do not exist yet.
@@ -168,6 +174,6 @@ reach feature parity. See [ADR-0012](./adr/0012-gui-first-product-model.md).
 - **Security boundary:** this remains a trusted-host/single-team system and is
   not safe to expose directly to an untrusted network; see
   [`SECURITY.md`](./SECURITY.md).
-- **Verification:** the declared Python 3.11 container gate records 771 passing
+- **Verification:** the declared Python 3.11 container gate records 808 passing
   tests with Ruff and Bandit clean. Host Python 3.13 currently hangs in
   Starlette `TestClient` and is not the supported full-test path.
