@@ -436,11 +436,17 @@ def _parse_nodes(outputs):
 # --- auth --------------------------------------------------------------------
 @app.before_request
 def require_login():
-    if request.endpoint in ("login", "static", "orchestrator_health"):
+    if request.endpoint in ("login", "static", "favicon", "orchestrator_health"):
         return None
     if not session.get("logged_in"):
         return redirect(url_for("login", next=request.path))
     return None
+
+
+@app.route("/favicon.ico")
+def favicon():
+    """Browsers request this path even when <link rel="icon"> names another file."""
+    return redirect(url_for("static", filename="anvil_logo.png"))
 
 
 @app.route("/login", methods=["GET", "POST"])

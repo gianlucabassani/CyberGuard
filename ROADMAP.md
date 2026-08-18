@@ -141,7 +141,7 @@ Still required:
 
 ## 3. Console product architecture — next milestone
 
-### C1 — Information architecture and application shell · **IN PROGRESS**
+### C1 — Information architecture and application shell · **COMPLETE**
 
 **Goal.** Give every shipped and planned function one predictable home before
 adding evaluation features. This is a workflow reorganization, not a visual-only
@@ -210,6 +210,20 @@ assistive technology. Filterable indexes share the same toolbar pattern.
 Automated route/render coverage is green. Live-browser visual verification and
 the final shell review are still required before C1 is complete.
 
+**Completion (2026-08-18).** The shell was reviewed in a real browser against the
+running compose stack. Twenty-three destinations — Home, both engagement pages,
+the evaluation and library and activity and administration destinations, the
+arena workspace, and every legacy alias — were walked at 1440×900 and 390×844.
+Each renders with a breadcrumb, exactly one current navigation item, no
+horizontal overflow at compact width, and no page-level console error or failed
+request. The review found and fixed two real defects: the New engagement steps
+rendered 1 → 3 → 4 → 2 because the participant/policy slice was inserted above
+the source step, and `/launch` and `/wizard` opened the Engagements group without
+marking any item current. Both are now covered by regression tests, and the
+console serves its own `favicon.ico` instead of 404ing. The remaining 404 on an
+arena's research preflight is correct: a challenge-based arena has none, and the
+card hides itself.
+
 **Acceptance.** A clickable, realistic prototype and route map cover Home,
 Engagements, Evaluations, Library, Activity, Administration, and the workspace
 below. An operator can locate every existing function; no shipped capability is
@@ -263,8 +277,12 @@ remain valid compatibility entry points.
 supported predefined, custom, generated, Vulhub, Git, OCI, and local-bundle path
 through one coherent journey, with the same backend validation as today.
 
-**Met in source/render/contract tests; live browser confirmation remains part of
-the cross-cutting C1 visual gate.**
+**Met in source/render/contract tests, and confirmed live on 2026-08-18.** In the
+browser, Create → New engagement → configuration → launch produced an active
+arena from the challenge path with the composed contract intact: the
+`engagement_intent` event recorded purpose, source, participant mode, time box,
+and the platform-enforced containment/monitoring/scoring values, and the chosen
+30-minute time box became the deployment expiry.
 
 ### C3 — Engagement/run workspace
 

@@ -33,6 +33,28 @@
   </fieldset>
 
   <fieldset class="choice-section card card-pad">
+    <legend>2. What does it start from?</legend>
+    <div class="choice-grid">
+      <label class="choice-option">
+        <input type="radio" name="source" value="challenge" {{ 'checked' if selected_source == 'challenge' }} required>
+        <span class="choice-option__body">
+          <span class="choice-option__icon"><i class="fa-solid fa-cubes"></i></span>
+          <span><strong>Challenge</strong><small>A predefined, custom, generated, imported, or pasted challenge specification.</small></span>
+          <i class="fa-solid fa-circle-check choice-option__check"></i>
+        </span>
+      </label>
+      <label class="choice-option">
+        <input type="radio" name="source" value="target" {{ 'checked' if selected_source == 'target' }} required>
+        <span class="choice-option__body">
+          <span class="choice-option__icon"><i class="fa-solid fa-code-branch"></i></span>
+          <span><strong>Target</strong><small>An authorized Git repository, OCI image, or local source bundle.</small></span>
+          <i class="fa-solid fa-circle-check choice-option__check"></i>
+        </span>
+      </label>
+    </div>
+  </fieldset>
+
+  <fieldset class="choice-section card card-pad">
     <legend>3. Who will drive it?</legend>
     <p class="help">Agent access still requires an arena binding and server-enforced stance after launch.</p>
     <div class="choice-grid choice-grid--three">
@@ -67,28 +89,6 @@
         <span><i class="fa-solid fa-wave-square"></i> Automatic monitoring</span>
         <span><i class="fa-solid fa-scale-balanced"></i> Manifest-aware or discovery scoring</span>
       </div>
-    </div>
-  </fieldset>
-
-  <fieldset class="choice-section card card-pad">
-    <legend>2. What does it start from?</legend>
-    <div class="choice-grid">
-      <label class="choice-option">
-        <input type="radio" name="source" value="challenge" {{ 'checked' if selected_source == 'challenge' }} required>
-        <span class="choice-option__body">
-          <span class="choice-option__icon"><i class="fa-solid fa-cubes"></i></span>
-          <span><strong>Challenge</strong><small>A predefined, custom, generated, imported, or pasted challenge specification.</small></span>
-          <i class="fa-solid fa-circle-check choice-option__check"></i>
-        </span>
-      </label>
-      <label class="choice-option">
-        <input type="radio" name="source" value="target" {{ 'checked' if selected_source == 'target' }} required>
-        <span class="choice-option__body">
-          <span class="choice-option__icon"><i class="fa-solid fa-code-branch"></i></span>
-          <span><strong>Target</strong><small>An authorized Git repository, OCI image, or local source bundle.</small></span>
-          <i class="fa-solid fa-circle-check choice-option__check"></i>
-        </span>
-      </label>
     </div>
   </fieldset>
 

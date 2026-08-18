@@ -25,6 +25,9 @@
         <span class="ico"><i class="fa-solid fa-house"></i></span><span class="nav-label">Home</span>
       </a>
 
+      {# Compatibility routes are later steps of a journey that already owns a nav
+         item, so they highlight that item instead of leaving the group unmarked. #}
+      {% set nav_active = {'launch': 'engagement_new', 'wizard': 'engagement_new'}.get(active, active) %}
       {% set nav_groups = [
         ('engagements', 'fa-crosshairs', ['arenas', 'engagement_new', 'launch', 'wizard'], [
           ('arenas', 'engagements', 'fa-layer-group', 'Engagements', ''),
@@ -59,7 +62,7 @@
         </summary>
         <div class="nav-group__items">
           {% for key, ep, item_icon, label, tag in items %}
-          <a class="nav-item nav-item--child {{ 'active' if active == key }}" href="{{ url_for(ep) }}" {{ 'aria-current="page"' | safe if active == key }}>
+          <a class="nav-item nav-item--child {{ 'active' if nav_active == key }}" href="{{ url_for(ep) }}" {{ 'aria-current="page"' | safe if nav_active == key }}>
             <span class="ico"><i class="fa-solid {{ item_icon }}"></i></span>
             <span class="nav-label">{{ label }}</span>
             {% if tag %}<span class="tag">{{ tag }}</span>{% endif %}

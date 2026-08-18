@@ -232,6 +232,36 @@ def test_target_routes_preserve_legacy_workflows(client, legacy_path, target_pat
     assert heading in target.data.decode()
 
 
+def test_engagement_entry_sections_follow_the_operator_sequence(client):
+    _login(client)
+    html = client.get("/engagements/new").data.decode()
+    legends = [
+        "1. What is the purpose?",
+        "2. What does it start from?",
+        "3. Who will drive it?",
+        "4. Runtime policy",
+    ]
+    positions = [html.index(legend) for legend in legends]
+    assert positions == sorted(positions), "numbered steps must render in order"
+
+
+@pytest.mark.parametrize("path", ["/launch", "/wizard"])
+def test_journey_steps_mark_their_navigation_owner(client, path):
+    """Compatibility builders are later steps of New engagement, not orphan pages."""
+    _login(client)
+    html = client.get(path).data.decode()
+    assert html.count('aria-current="page"') == 1
+    marked = html[: html.index('aria-current="page"')].rsplit("<a class=", 1)[-1]
+    assert "nav-item--child active" in marked
+    assert "New engagement" in html[html.index('aria-current="page"') :][:400]
+
+
+def test_favicon_is_served_without_a_session(client):
+    resp = client.get("/favicon.ico")
+    assert resp.status_code == 302
+    assert "anvil_logo.png" in resp.headers["Location"]
+
+
 def test_login_rejects_wrong_password_even_with_token(client):
     token = _csrf_token(client)
     resp = client.post(
