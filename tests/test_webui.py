@@ -751,7 +751,7 @@ def test_arena_detail_contains_shared_workspace_viewer(client, monkeypatch):
                 "outputs": {"node_victim_name": "nv-victim"},
             })
         if url.endswith("/workspaces"):
-            return _FakeResp({"workspaces": []})
+            return _FakeResp({"workspaces": [{"node": "victim", "path": "/srv/app"}]})
         if "/score" in url:
             return _FakeResp({})
         return _FakeResp({"events": []})
@@ -761,6 +761,179 @@ def test_arena_detail_contains_shared_workspace_viewer(client, monkeypatch):
     html = client.get("/arena/a1").data
     assert b'id="workspace-card"' in html
     assert b"Workspace changes" in html
+    # The viewer lives in the Changes tab of the workspace (ROADMAP C3).
+    assert b'data-tab="changes"' in html
+
+
+def test_workspace_hides_tabs_that_have_nothing_to_show(client, monkeypatch):
+    """Only applicable tabs render — an arena with no workspaces has no Changes tab."""
+    import app as webui_module
+
+    class _FakeResp:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        if "/status/" in url:
+            return _FakeResp({
+                "user_id": "lab", "status": "active", "scenario": "container_web_pentest",
+                "outputs": {"node_victim_name": "nv-victim"},
+            })
+        if url.endswith("/workspaces"):
+            return _FakeResp({"workspaces": []})
+        if "/score" in url:
+            return _FakeResp({})
+        return _FakeResp({"events": []})
+
+    monkeypatch.setattr(webui_module.requests, "get", fake_get)
+    _login(client)
+    html = client.get("/arena/a1").data.decode()
+    for always in ("overview", "live", "findings", "agent", "infrastructure"):
+        assert f'data-tab="{always}"' in html
+    for absent in ("changes", "evidence", "trace"):
+        assert f'data-tab="{absent}"' not in html
+
+
+def test_destroyed_engagement_is_a_read_only_record(client, monkeypatch):
+    """Evidence outlives the arena; nothing may be run against infrastructure that is gone."""
+    import app as webui_module
+
+    class _FakeResp:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        if "/status/" in url:
+            return _FakeResp({
+                "user_id": "past-run", "status": "destroyed",
+                "scenario": "sut:local", "outputs": {},
+            })
+        if url.endswith("/workspaces"):
+            return _FakeResp({"workspaces": []})
+        if "/score" in url:
+            return _FakeResp({})
+        return _FakeResp({"events": []})
+
+    monkeypatch.setattr(webui_module.requests, "get", fake_get)
+    _login(client)
+    html = client.get("/arena/a1").data.decode()
+    assert 'id="readonly-notice"' in html
+    assert "read-only record" in html
+    assert "destroyInstance(" not in html          # no lifecycle action
+    assert "Nidavellir.openConfigurator()" not in html  # nothing to configure
+    assert 'id="findings-card"' in html            # evidence stays reviewable
+    assert 'badge--ok">running' not in html        # never claim a destroyed node is up
+
+
+def _stream_frames(client, monkeypatch, events, headers=None):
+    """Read one pass of the workspace stream without waiting on its idle sleep."""
+    import app as webui_module
+
+    class _FakeResp:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        if "/status/" in url:
+            return _FakeResp({"status": "active", "outputs": {"node_victim_name": "v"}})
+        return _FakeResp({"events": events})
+
+    monkeypatch.setattr(webui_module.requests, "get", fake_get)
+    # One iteration is enough: the loop exits as soon as its deadline passes.
+    monkeypatch.setattr(webui_module, "_STREAM_MAX_SECONDS", 0.001)
+    monkeypatch.setattr(webui_module.time, "sleep", lambda _s: None)
+    _login(client)
+    resp = client.get("/api/arenas/a1/stream", headers=headers or {})
+    assert resp.status_code == 200
+    assert resp.mimetype == "text/event-stream"
+    return resp.get_data(as_text=True)
+
+
+def test_workspace_stream_pushes_state_and_activity(client, monkeypatch):
+    body = _stream_frames(client, monkeypatch, [
+        {"id": 7, "type": "finding", "ts": "t", "payload": {"title": "XSS"}},
+        {"id": 6, "type": "status", "ts": "t", "payload": {"to": "active"}},
+    ])
+    assert "event: state" in body
+    assert '"status": "active"' in body
+    assert "event: activity" in body
+    assert "id: 7" in body            # cursor is the newest event id
+    assert "XSS" in body
+
+
+def test_workspace_stream_resumes_from_last_event_id(client, monkeypatch):
+    """A reconnecting browser must not replay what it already rendered."""
+    body = _stream_frames(
+        client, monkeypatch,
+        [{"id": 7, "type": "finding", "ts": "t", "payload": {"title": "XSS"}},
+         {"id": 6, "type": "status", "ts": "t", "payload": {"to": "active"}}],
+        headers={"Last-Event-ID": "7"},
+    )
+    assert "event: activity" not in body   # nothing newer than the cursor
+    assert "keepalive" in body
+
+
+def test_eval_export_proxy_downloads_the_run_row(client, monkeypatch):
+    import app as webui_module
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"source_trace_id": "trace-1", "metadata": {"run_id": "a1"}}
+
+    monkeypatch.setattr(webui_module.requests, "get", lambda url, **kw: _FakeResp())
+    _login(client)
+    resp = client.get("/api/arenas/a1/eval-export")
+    assert resp.status_code == 200
+    assert "attachment" in resp.headers["Content-Disposition"]
+    assert b"trace-1" in resp.data
+
+
+def test_manual_finding_form_starts_hidden(client, monkeypatch):
+    """An inline display: would defeat the hidden attribute — the form styles by class."""
+    import app as webui_module
+
+    class _FakeResp:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, **kwargs):
+        if "/status/" in url:
+            return _FakeResp({"user_id": "lab", "status": "active",
+                              "scenario": "container_web_pentest", "outputs": {}})
+        if url.endswith("/workspaces"):
+            return _FakeResp({"workspaces": []})
+        if "/score" in url:
+            return _FakeResp({})
+        return _FakeResp({"events": []})
+
+    monkeypatch.setattr(webui_module.requests, "get", fake_get)
+    _login(client)
+    html = client.get("/arena/a1").data.decode()
+    form = html[html.index('id="mf-form"'):html.index('id="mf-form"') + 120]
+    assert "hidden" in form
+    assert "display:grid" not in form
 
 
 def test_vulhub_import_proxy_requires_csrf(client):

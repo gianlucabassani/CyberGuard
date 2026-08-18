@@ -1,6 +1,8 @@
 import hmac
+import json
 import os
 import re
+import time
 from datetime import datetime, timedelta
 
 import requests
@@ -721,6 +723,36 @@ def challenge_library():
     return scenarios()
 
 
+# The engagement/run workspace (ROADMAP C3, ADR-0012). One contextual surface per
+# concern, in the order an operator works through them; only applicable tabs render.
+_WORKSPACE_TABS = (
+    ("overview", "Overview", "fa-gauge-high"),
+    ("live", "Live", "fa-wave-square"),
+    ("target", "Target", "fa-bullseye"),
+    ("findings", "Findings", "fa-bug"),
+    ("evidence", "Evidence", "fa-box-archive"),
+    ("changes", "Changes", "fa-code-compare"),
+    ("agent", "Agent", "fa-chess"),
+    ("trace", "Trace", "fa-route"),
+    ("score", "Score", "fa-flag-checkered"),
+    ("infrastructure", "Infrastructure", "fa-server"),
+)
+
+
+def _workspace_tabs(applicable, counts=None):
+    """Ordered tab descriptors for the tabs that actually have something to show.
+
+    A count rides beside the label so an operator can see where the substance is —
+    how many findings, artifacts, or changed workspaces — without opening each tab.
+    """
+    counts = counts or {}
+    return [
+        {"id": tab, "label": label, "icon": icon, "count": counts.get(tab)}
+        for tab, label, icon in _WORKSPACE_TABS
+        if applicable.get(tab)
+    ]
+
+
 @app.route("/arena/<instance_id>")
 def arena_detail(instance_id):
     data, ok = _api_get(f"/status/{instance_id}")
@@ -749,23 +781,75 @@ def arena_detail(instance_id):
         or any(k.endswith(("_setup_shell", "_sut_source")) for k in outputs)
         or bool(ev_types & {"setup_prearm", "setup_session", "setup_step"})
     )
+    state = data.get("status", "unknown")
+    score = _score(instance_id)
+    findings = _findings(instance_id)
+    setup_steps = _setup_steps(instance_id)
+
+    # A destroyed arena is a read-only record: its evidence stays readable, but
+    # nothing may be launched, granted, or changed against infrastructure that is gone.
+    read_only = state == "destroyed"
+
+    monitor_signals = [
+        {**(e.get("payload") or {}), "ts": e.get("ts")}
+        for e in events
+        if e.get("type") == "monitor_signal"
+    ]
+    evidence_artifacts = [
+        {**artifact, "finding_id": f.get("finding_id"), "finding_title": f.get("title")}
+        for f in findings
+        for artifact in (f.get("evidence_artifacts") or [])
+    ]
+    preflight, preflight_ok = _api_get(f"/arenas/{instance_id}/preflight")
+    workspaces_data, _ = _api_get(f"/arenas/{instance_id}/workspaces")
+    workspaces = (workspaces_data or {}).get("workspaces") or []
+    # Trace/attribution only exists once a BYO agent has actually worked the arena.
+    has_agent_activity = bool(
+        ev_types & {"agent_session", "agent_exec", "agent_binding", "agent_setup_step"}
+    )
+    trace = _api_get(f"/arenas/{instance_id}/eval-export")[0] if has_agent_activity else None
+
+    tabs = _workspace_tabs({
+        "overview": True,
+        "live": True,
+        "target": is_sut or bool(preflight_ok and preflight),
+        "findings": True,
+        "evidence": bool(evidence_artifacts or monitor_signals),
+        "changes": bool(workspaces),
+        "agent": True,
+        "trace": bool(trace),
+        "score": bool(score),
+        "infrastructure": True,
+    }, counts={
+        "findings": len(findings),
+        "evidence": len(evidence_artifacts) + len(monitor_signals),
+        "changes": len(workspaces),
+    })
+
     return render_template(
         "arena_detail.html", active="arenas",
         instance_id=instance_id,
         instance_name=data.get("user_id", instance_id),
-        state=data.get("status", "unknown"),
+        state=state,
         outputs=outputs,
         nodes=_parse_nodes(outputs),
         unhealthy=outputs.get("unhealthy_nodes"),
         provider=outputs.get("provider") or data.get("provider"),
         events=events,
         engagement_intent=engagement_intent,
-        score=_score(instance_id),
-        findings=_findings(instance_id),
-        setup_steps=_setup_steps(instance_id),
+        score=score,
+        findings=findings,
+        setup_steps=setup_steps,
         scenario=scenario,
         is_sut=is_sut,
         gateway_url=GATEWAY_PUBLIC_URL,
+        tabs=tabs,
+        read_only=read_only,
+        monitor_signals=monitor_signals,
+        evidence_artifacts=evidence_artifacts,
+        trace=trace,
+        created_at=data.get("created_at"),
+        expires_at=data.get("expires_at"),
     )
 
 
@@ -1404,6 +1488,84 @@ def arena_events_proxy(instance_id):
     (every agent tool call, finding, connection, setup step). Read-only."""
     limit = request.args.get("limit", 40)
     return jsonify({"events": _events(instance_id, limit=limit)}), 200
+
+
+# Workspace live stream (ROADMAP C3). The browser holds one connection instead of
+# three timers; the console still only presents — it derives frames from orchestrator
+# reads. When the orchestrator grows its own change feed, this generator can consume
+# it without changing the contract the workspace already speaks.
+_STREAM_INTERVAL_SECONDS = float(os.getenv("WEBUI_STREAM_INTERVAL_SECONDS", "2"))
+_STREAM_MAX_SECONDS = float(os.getenv("WEBUI_STREAM_MAX_SECONDS", "1800"))
+_STREAM_BACKFILL = 40
+
+
+def _sse(name, payload, event_id=None):
+    head = f"id: {event_id}\n" if event_id is not None else ""
+    return f"{head}event: {name}\ndata: {json.dumps(payload)}\n\n"
+
+
+@app.route("/api/arenas/<instance_id>/stream")
+def arena_stream(instance_id):
+    """Server-sent workspace updates: arena state, outputs, and new audit events.
+
+    Audit events carry a monotonic id, so a reconnecting browser resumes exactly
+    where it stopped via the standard `Last-Event-ID` header — no duplicates, no gap.
+    """
+    try:
+        cursor = int(request.headers.get("Last-Event-ID", ""))
+    except ValueError:
+        cursor = None
+
+    def generate(cursor):
+        deadline = time.monotonic() + _STREAM_MAX_SECONDS
+        previous = None
+        while time.monotonic() < deadline:
+            status, ok = _api_get(f"/status/{instance_id}")
+            if ok and status:
+                state = {
+                    "status": status.get("status", "unknown"),
+                    "outputs": status.get("outputs") or {},
+                }
+                if state != previous:
+                    previous = state
+                    yield _sse("state", state)
+
+            events = list(reversed(_events(instance_id, limit=_STREAM_BACKFILL)))
+            if cursor is None:
+                fresh = events                       # first connection: recent context
+            else:
+                fresh = [e for e in events if (e.get("id") or 0) > cursor]
+            if fresh:
+                cursor = max((e.get("id") or 0) for e in fresh)
+                yield _sse("activity", {"events": fresh}, event_id=cursor)
+            else:
+                yield ": keepalive\n\n"            # keeps proxies from idling us out
+            time.sleep(_STREAM_INTERVAL_SECONDS)
+
+    return Response(
+        stream_with_context(generate(cursor)),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # never buffer a stream behind a reverse proxy
+        },
+    )
+
+
+@app.route("/api/arenas/<instance_id>/eval-export", methods=["GET"])
+def arena_eval_export_proxy(instance_id):
+    """The run's eval-dataset row (ADR-0010) for download from the Trace tab."""
+    data, ok = _api_get(f"/arenas/{instance_id}/eval-export")
+    if not ok or data is None:
+        return jsonify({"error": "eval export unavailable"}), 502
+    return Response(
+        json.dumps(data, indent=2),
+        mimetype="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{instance_id}-eval.json"'
+        },
+    )
 
 
 @app.route("/api/arenas/<instance_id>/workspaces", methods=["GET"])

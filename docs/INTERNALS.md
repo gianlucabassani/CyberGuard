@@ -309,7 +309,36 @@ on the operator's key — the co-pilot, `/scenarios/generate`, Dockerfile synthe
 
 ---
 
-## 14. Cross-cutting safety
+## 14. Console workspace & live stream (C3, ADR-0012)
+
+The engagement/run workspace (`webui/templates/arena_detail.html`) is one page of
+contextual tabs — Overview · Live · Target · Findings · Evidence · Changes · Agent ·
+Trace · Score · Infrastructure. `app._workspace_tabs` renders only the tabs that have
+something to show: Target needs a preflight or a configurable target, Changes needs a
+provider-discovered workspace, Evidence needs artifacts or monitor signals, Trace needs
+a connected agent's activity, Score needs a score. The active tab lives in the URL
+fragment, so `#findings` is a shareable deep link.
+
+Setup is a phase of the engagement rather than a permanent page block: it appears in
+Overview while the target is being brought up and remains as a Target-tab record
+afterwards. A destroyed arena becomes a **read-only record** — lifecycle and
+configuration actions disappear and node state is labeled as last-recorded, while
+findings, evidence, score, and trace stay reviewable, because evidence outlives the
+infrastructure it came from.
+
+`GET /api/arenas/{id}/stream` (WebUI) is the workspace's live channel: `state` frames
+carry arena status and outputs, `activity` frames carry new audit events, and the SSE
+`id:` is the event's monotonic database id, so a reconnecting browser resumes from its
+`Last-Event-ID` without gaps or replays. The browser holds one connection instead of
+three timers; agent actions, findings, and monitor signals arrive as they are recorded.
+The console stays a presentation layer — the generator derives frames from ordinary
+orchestrator reads, so an orchestrator-side change feed can replace its internals
+without changing the contract the browser speaks. If a browser or proxy cannot hold the
+stream, the client falls back to the previous `/api/poll/{id}` loop.
+
+---
+
+## 15. Cross-cutting safety
 
 - **Containment first** (§5): no-egress by default, allowlisted mirror, CI canary
   test.
@@ -324,7 +353,7 @@ on the operator's key — the co-pilot, `/scenarios/generate`, Dockerfile synthe
 
 ---
 
-## 15. Request lifecycle (current single-run engine)
+## 16. Request lifecycle (current single-run engine)
 
 1. Operator `POST /deploy {scenario, instance_id}` → `deploy_lab` (Celery) →
    `docker_local.deploy` builds the arena → status `active`, outputs recorded.
@@ -342,7 +371,7 @@ on the operator's key — the co-pilot, `/scenarios/generate`, Dockerfile synthe
 
 ---
 
-## 16. Planned product composition (not implemented)
+## 17. Planned product composition (not implemented)
 
 ADR-0012 reorganizes the current pages around Engagements and Evaluations without
 moving business logic into the WebUI. The planned composition is:

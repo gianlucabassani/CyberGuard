@@ -130,7 +130,8 @@ Still required:
 ### Verified health boundary
 
 - Python 3.11 is the declared CI/runtime line; the last full container gate
-  recorded 771 passing tests, Ruff clean, and no medium/high Bandit findings.
+  (2026-08-18) recorded 806 passing tests and 6 skips that need a Docker daemon or
+  the tofu binary, Ruff clean, and no medium/high Bandit findings.
 - Host Python 3.13 currently hangs in Starlette `TestClient`, including a minimal
   FastAPI reproduction. Do not describe a host-3.13 run as green; use the declared
   Python 3.11 gate until compatibility is deliberately added.
@@ -284,7 +285,7 @@ arena from the challenge path with the composed contract intact: the
 and the platform-enforced containment/monitoring/scoring values, and the chosen
 30-minute time box became the deployment expiry.
 
-### C3 — Engagement/run workspace
+### C3 — Engagement/run workspace · **COMPLETE**
 
 Decompose the growing arena-detail page into one contextual workspace:
 
@@ -298,9 +299,41 @@ page block. Destroyed arenas become read-only records whose evidence remains
 available. Add SSE for live state, events, monitor signals, agent actions, findings,
 and budgets; retire five-second polling.
 
+**Shipped (2026-08-18).** The arena page is now one workspace of contextual tabs.
+`_workspace_tabs` renders only what has something to show: Target needs a preflight
+or a configurable target, Changes a provider-discovered workspace, Evidence artifacts
+or monitor signals, Trace a connected agent's activity, Score a score. A predefined
+challenge arena therefore shows six tabs, not ten. The active tab is the URL fragment,
+so `#findings` is a shareable deep link. Setup became a phase — an Overview card while
+the target comes up, a Target-tab record afterwards. A destroyed arena is a read-only
+record: lifecycle and configuration actions disappear, node state is labeled as last
+recorded rather than claimed running, and findings, evidence, score, and trace stay
+reviewable. Evidence and Trace are new surfaces: content-addressed patch artifacts and
+monitor signals in one place, and the run's model/scaffold/stance attribution with an
+eval-row export.
+
+`GET /api/arenas/{id}/stream` is the workspace's SSE channel. `state` frames carry
+arena status and outputs; `activity` frames carry new audit events — agent actions,
+findings, monitor signals — and the SSE id is the event's monotonic database id, so a
+reconnecting browser resumes from `Last-Event-ID` with no gap and no replay. The
+five-second status poll is retired: a live workspace makes zero `/api/poll` requests,
+and the positioning/configurator panels refresh because an event says they changed
+rather than on a fixed timer, with a slow safety tick behind them and the old poller
+kept as a fallback where a stream cannot be held. Budget frames wait for R3, which is
+where durable budgets are actually introduced.
+
 **Acceptance.** An operator can follow provision → setup → engagement → result
 without leaving the workspace, while detailed evidence and infrastructure remain
 available on demand rather than competing on one page.
+
+**Met, and confirmed live on 2026-08-18** against the compose stack: every tab was
+walked in a real browser at 1440×900 and 390×844 with one panel visible at a time and
+no horizontal overflow; a finding submitted through the API alone appeared in the
+browser without a reload; destroying the arena flipped the status badge live; and the
+same arena then rendered as a read-only record. Two defects found by that review are
+fixed — the topology could not measure itself inside a hidden panel, and the manual
+finding form's inline `display:grid` had been silently defeating its `hidden`
+attribute.
 
 ### C4 — Home and cross-cutting activity
 

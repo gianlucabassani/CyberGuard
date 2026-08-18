@@ -840,3 +840,33 @@ select[multiple] option { padding:6px 8px; border-radius:6px; }
   .create-menu > summary { width:30px; padding:0; justify-content:center; }
 }
 @media (prefers-reduced-motion:reduce) { *{animation:none !important; transition:none !important;} }
+
+/* ---------- engagement/run workspace (ROADMAP C3) ---------- */
+/* One contextual surface at a time; the strip reuses the segmented-control language
+   so the workspace reads like the rest of the console. */
+.ws-tabs { display:flex; width:100%; margin-bottom:18px; overflow-x:auto; flex-wrap:nowrap; scrollbar-width:thin; }
+.ws-tabs button { white-space:nowrap; }
+/* Every panel stacks its cards on one rhythm, so no card carries its own spacing. */
+.ws-panel { display:flex; flex-direction:column; gap:16px; }
+.ws-panel[hidden] { display:none; }
+/* Two-column disposition where a panel has a summary beside a detail table. */
+.ws-split { display:grid; gap:16px; align-items:start; grid-template-columns:minmax(0,1fr) minmax(0,1.25fr); }
+.ws-split--infra { grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); }
+.ws-col { display:flex; flex-direction:column; gap:16px; min-width:0; }
+/* Key/value detail reads better constrained than stretched across a wide screen. */
+.ws-narrow { max-width:920px; }
+.ws-panel #topo { height:440px; border-radius:0 0 var(--radius) var(--radius); }
+.ws-tab-count { font-family:var(--mono); font-size:10.5px; line-height:1; padding:3px 6px; border-radius:5px;
+  background:var(--surface-3); border:1px solid var(--line); color:var(--muted); }
+.ws-tabs button.on .ws-tab-count { color:var(--text); border-color:var(--accent-line); background:var(--accent-soft); }
+@media (max-width: 1180px) { .ws-split, .ws-split--infra { grid-template-columns:minmax(0,1fr); } }
+@media (max-width: 720px) { .ws-tabs button { padding:0 11px; } .ws-panel #topo { height:320px; } }
+
+/* An inline display: would beat the UA [hidden] rule, so toggled blocks style by class. */
+.mf-form { display:grid; grid-template-columns:2fr 1fr 1fr; gap:8px; align-items:start;
+  border-bottom:1px solid var(--line-soft); }
+.mf-form[hidden] { display:none; }
+.mf-form > .grow-row { grid-column:1 / -1; }
+.row-actions { display:flex; gap:8px; }
+.row-actions[hidden] { display:none; }
+@media (max-width: 900px) { .mf-form { grid-template-columns:1fr; } }

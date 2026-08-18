@@ -369,7 +369,41 @@
     renderSpecTopology("topo", outputsToTopology(o));
   }
 
+  /* ---- engagement/run workspace tabs (ROADMAP C3) ---------------------- */
+  // One page, one contextual surface at a time. The tab is part of the URL so an
+  // operator can link a colleague straight to the findings or the evidence.
+  function initWorkspaceTabs() {
+    const bar = document.getElementById("ws-tabs");
+    if (!bar) return;
+    const tabs = [...bar.querySelectorAll("[data-tab]")];
+    const panels = [...document.querySelectorAll(".ws-panel")];
+    if (!tabs.length) return;
+
+    function show(name, push) {
+      const target = tabs.some((t) => t.dataset.tab === name) ? name : tabs[0].dataset.tab;
+      tabs.forEach((t) => {
+        const on = t.dataset.tab === target;
+        t.classList.toggle("on", on);
+        t.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      panels.forEach((p) => { p.hidden = p.dataset.tab !== target; });
+      if (push && location.hash.slice(1) !== target) {
+        history.replaceState(null, "", "#" + target);
+      }
+      // Cytoscape cannot measure a hidden container, so re-fit when it appears.
+      if (target === "infrastructure") setTimeout(() => window.Nidavellir.fit(), 0);
+    }
+
+    tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.tab, true)));
+    window.addEventListener("hashchange", () => show(location.hash.slice(1), false));
+    show(location.hash.slice(1) || tabs[0].dataset.tab, false);
+  }
+
   /* ---- arena detail page ---------------------------------------------- */
+  // Live workspace state arrives over SSE (ROADMAP C3). The timer-based poller
+  // below stays as the fallback for a browser or proxy that cannot hold a stream.
+  let arenaStream = null;
+
   function initArena() {
     const id = document.body.dataset.instanceId;
     let last = {};
@@ -378,27 +412,57 @@
     initWorkspaceChanges(id);
     initResearchPreflight(id);
 
-    let prevStatus = null, delay = 3000;
-    const poll = () => {
-      fetch("/api/poll/" + id)
-        .then((r) => r.json())
-        .then((d) => {
-          const badge = document.getElementById("lab-status");
-          if (badge) badge.innerHTML = statusBadge(d.status);
-          // Reaching 'active' for the first time → reload to populate the node table.
-          if (d.status === "active" && prevStatus && prevStatus !== "active") {
-            window.location.reload(); return;
-          }
-          prevStatus = d.status;
-          if (d.outputs && JSON.stringify(d.outputs) !== JSON.stringify(last)) {
-            last = d.outputs; renderTopology(last);
-          }
-          delay = d.status === "active" ? 6000 : 3000;
-          setTimeout(poll, delay);
-        })
-        .catch(() => setTimeout(poll, 8000));
+    let prevStatus = null;
+
+    function applyState(d) {
+      const badge = document.getElementById("lab-status");
+      if (badge && d.status) badge.innerHTML = statusBadge(d.status);
+      // Reaching 'active' for the first time → reload to populate the node table.
+      if (d.status === "active" && prevStatus && prevStatus !== "active") {
+        window.location.reload(); return true;
+      }
+      prevStatus = d.status;
+      if (d.outputs && JSON.stringify(d.outputs) !== JSON.stringify(last)) {
+        last = d.outputs; renderTopology(last);
+      }
+      return false;
+    }
+
+    function pollArena() {
+      let delay = 3000;
+      const poll = () => {
+        fetch("/api/poll/" + id)
+          .then((r) => r.json())
+          .then((d) => {
+            if (applyState(d)) return;
+            delay = d.status === "active" ? 6000 : 3000;
+            setTimeout(poll, delay);
+          })
+          .catch(() => setTimeout(poll, 8000));
+      };
+      poll();
+    }
+
+    if (!window.EventSource) { pollArena(); return; }
+    let failures = 0;
+    const stream = new EventSource("/api/arenas/" + id + "/stream");
+    arenaStream = stream;
+    stream.addEventListener("state", (m) => {
+      failures = 0;
+      try { applyState(JSON.parse(m.data)); } catch (e) {}
+    });
+    stream.addEventListener("activity", (m) => {
+      failures = 0;
+      let events = [];
+      try { events = (JSON.parse(m.data).events || []); } catch (e) { return; }
+      if (events.length) engOnActivity(events);
+    });
+    stream.onerror = () => {
+      // EventSource retries on its own; give up and poll only if it keeps failing.
+      if (stream.readyState === EventSource.CLOSED && ++failures >= 3) {
+        arenaStream = null; pollArena();
+      }
     };
-    poll();
   }
 
   function initResearchPreflight(arenaId) {
@@ -770,6 +834,7 @@
      area build once / on shape change, so half-typed input survives a refresh. */
   let engArena = null, engActive = false, engSut = false, engGateway = "";
   let engTimer = null, engCfgSig = null, engRecipeDone = false;
+  let engEvents = [];   // newest-first window the live log and positioning read from
 
   const POS_STANCES = [
     { id: "attacker", label: "Attacker", icon: "fa-crosshairs",    color: "var(--attacker)", desc: "Pentest the targets from the foothold" },
@@ -789,8 +854,21 @@
     engGateway = gateway || ""; engCfgSig = null; engRecipeDone = false;
     engRenderRecipe();
     engRefresh();
+    // The stream drives updates now; this slow tick is only a safety net for
+    // state that no audit event announces (an agent key expiring, say).
     if (engTimer) clearInterval(engTimer);
-    engTimer = setInterval(engRefresh, 4000);
+    engTimer = setInterval(engRefresh, arenaStream ? 30000 : 4000);
+  }
+
+  // New audit events from the workspace stream: render them, and refresh the
+  // panels whose state those events just changed.
+  function engOnActivity(fresh) {
+    const newestFirst = fresh.slice().reverse();
+    engEvents = newestFirst.concat(engEvents).slice(0, 200);
+    engRenderLog(engEvents);
+    const touchesPanels = fresh.some((e) =>
+      /^(agent_|setup_|binding|finding)/.test(e.type || ""));
+    if (touchesPanels && engArena) engRefresh();
   }
 
   // Configurator lives in an overlay modal (opened from its overview card); the
@@ -811,6 +889,7 @@
       .then((r) => r.json()).then((d) => d.events || []).catch(() => []);
     const pSetup = (engActive && engSut) ? engApi("").catch(() => null) : Promise.resolve(null);
     Promise.all([pBind, pEvents, pSetup]).then(([binds, events, setup]) => {
+      engEvents = events;
       engRenderPositioning(binds, events);
       engRenderConfigurator(setup);
       engRenderLog(events);
@@ -2272,7 +2351,7 @@
   }
 
   window.Nidavellir = {
-    initArena, renderTopology, renderSpecTopology,
+    initArena, initWorkspaceTabs, renderTopology, renderSpecTopology,
     initScenarioPreview, initScenariosBrowser,
     initDashboard, initLogs, initLaunch, initWizard, initInventory, initSettings,
     openModelModal, closeModelModal, openModelConfig, saveModel, removeModel, testModel,
@@ -2280,7 +2359,7 @@
     openAgentConfig, closeAgentConfig, revokeAgent, pauseAgent, resumeAgent,
     initEngagement, engDecide, openConfigurator, closeConfigurator,
     initAgents,
-    fit: function () { const cy = specCy["topo"]; if (cy) cy.fit(null, 36); },
+    fit: function () { const cy = specCy["topo"]; if (cy) { cy.resize(); cy.fit(null, 36); } },
   };
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
