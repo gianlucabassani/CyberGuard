@@ -1,13 +1,19 @@
 # Overview
 
-> Nidavellir is a **GUI-driven, bring-your-own-agent cyber evaluation arena for
-> active challenges**. It provisions reproducible targets, gives a human or
+> Nidavellir is a **GUI-driven, bring-your-own-agent arena for security work on
+> real running systems**. It provisions reproducible targets, gives a human or
 > external agent a contained research position, independently verifies observed
-> effects, and produces scored, replayable, auditable results.
+> effects, and produces evidence-grade, replayable, auditable results.
 
-Nidavellir ships no autonomous pentesting agent. The participant is the system
-under test; Nidavellir is the environment factory, capability boundary,
-observer, referee, and comparison layer. For agent connection details see
+One engine serves two objectives. In **discovery**, the target is under test: the
+platform removes the friction of standing a real product up at an exact identity,
+containing it, and proving afterwards what was hit — the output is a vulnerability
+record. In **evaluation**, the AI is under test: complete agent builds run over
+held-out challenges and are compared on verified capability. They meet at one
+asset — a challenge is a solved discovery problem with its truth withheld.
+
+Nidavellir ships no autonomous pentesting agent. It is the environment factory,
+capability boundary, observer, referee, and comparison layer. For agent connection details see
 [`MCP.md`](./MCP.md); for the product boundary see [`VISION.md`](./VISION.md);
 for subsystem internals see
 [`INTERNALS.md`](./INTERNALS.md); for the product sequence see

@@ -9,21 +9,21 @@
   <link rel="icon" type="image/png" href="assets/anvil_logo.png">
   
   <!-- SEO Meta Tags -->
-  <meta name="description" content="The GUI-driven, bring-your-own-agent cyber evaluation arena. Provision a reproducible target, give a human or agent a contained research position, verify the evidence independently, and turn the session into a scored, replayable result.">
+  <meta name="description" content="One engine, two objectives: discovery — find and prove real vulnerabilities with reproducible setup and evidence-grade proof — and evaluation — measure and compare the bring-your-own agents that hunt them, on held-out challenges.">
   <meta name="keywords" content="cybersecurity, cyber range, AI agent evaluation, agent benchmark, MCP gateway, pentesting, security research, FastAPI, Celery, Docker">
 
   <!-- Open Graph / Facebook Link Previews -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://gianlucabassani.github.io/Nidavellir/">
   <meta property="og:title" content="Nidavellir · Agentic Arena Forge">
-  <meta property="og:description" content="The GUI-driven, bring-your-own-agent cyber evaluation arena. Provision a reproducible target, give a human or agent a contained research position, verify the evidence independently, and turn the session into a scored, replayable result.">
+  <meta property="og:description" content="One engine, two objectives: discovery — find and prove real vulnerabilities with reproducible setup and evidence-grade proof — and evaluation — measure and compare the bring-your-own agents that hunt them, on held-out challenges.">
   <meta property="og:image" content="https://gianlucabassani.github.io/Nidavellir/assets/anvil_logo.png">
 
   <!-- Twitter Link Previews -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:url" content="https://gianlucabassani.github.io/Nidavellir/">
   <meta name="twitter:title" content="Nidavellir · Agentic Arena Forge">
-  <meta name="twitter:description" content="The GUI-driven, bring-your-own-agent cyber evaluation arena. Provision a reproducible target, give a human or agent a contained research position, verify the evidence independently, and turn the session into a scored, replayable result.">
+  <meta name="twitter:description" content="One engine, two objectives: discovery — find and prove real vulnerabilities with reproducible setup and evidence-grade proof — and evaluation — measure and compare the bring-your-own agents that hunt them, on held-out challenges.">
   <meta name="twitter:image" content="https://gianlucabassani.github.io/Nidavellir/assets/anvil_logo.png">
   
   <!-- Web Fonts -->
@@ -1394,8 +1394,9 @@
             <p class="hero-desc">
               Nidavellir provisions a reproducible target in a <strong>contained arena</strong>, gives a
               human or a bring-your-own agent a scoped research position over an <strong>MCP gateway</strong>,
-              and independently verifies what actually happened. Every engagement ends as a scored,
-              replayable, auditable record. The AI is the system under test — the arena is the referee.
+              and independently verifies what actually happened. One engine serves two objectives:
+              <strong>discovery</strong> — find and prove real vulnerabilities in real products — and
+              <strong>evaluation</strong> — measure and compare the agents that hunt them.
             </p>
 
             <div class="hero-cta">
@@ -1541,12 +1542,54 @@
         </div>
       </section>
 
+      <!-- TWO OBJECTIVES -->
+      <section class="showcase-section" id="objectives">
+        <div class="container">
+          <div class="section-head">
+            <h2>Two objectives, one engine</h2>
+            <p>The same provisioning, containment, monitor, validator, and evidence machinery answers two different questions — and the answers feed each other.</p>
+          </div>
+
+          <div class="pillars-grid" style="grid-template-columns:repeat(2,1fr)">
+            <div class="pillar-card attacker">
+              <div class="pillar-icon" style="color:var(--attacker);">Discovery</div>
+              <h3>The target is under test</h3>
+              <p>
+                A vulnerability research platform: stand a real product up at an exact identity, contain it,
+                work it from a stable position, and prove afterwards precisely what was hit. The output is a
+                defensible record — finding, PoC, observed effect, affected identity, disclosure state —
+                not a score. The participant, human or agent, is the instrument.
+              </p>
+            </div>
+
+            <div class="pillar-card defender">
+              <div class="pillar-icon" style="color:var(--defender);">Evaluation</div>
+              <h3>The agent is under test</h3>
+              <p>
+                An evaluation arena for complete agent builds — model, scaffold, tools, memory, policies,
+                budgets together — run over held-out active challenges and compared on verified capability
+                rather than claims. Nidavellir is the environment, capability boundary, observer, referee,
+                and comparison layer; it never ships the agent it measures.
+              </p>
+            </div>
+          </div>
+
+          <div class="callout" style="margin-top:28px">
+            <strong>A challenge is a solved discovery problem with its truth withheld.</strong>
+            Verified findings from real research are the only honest source of held-out evaluation
+            material — public CTFs and known-CVE packs calibrate, but cannot settle a comparison
+            participants may have trained on. That is why the platform is built to be useful to a
+            researcher before it is built to rank an agent.
+          </div>
+        </div>
+      </section>
+
       <!-- THREE PILLARS -->
       <section class="showcase-section" id="pillars">
         <div class="container">
           <div class="section-head">
             <h2>Three engine pillars</h2>
-            <p>Everything above the engine — engagements today, repeated evaluations next — reuses the same arena, evidence, and scoring substrate.</p>
+            <p>Both objectives stand on these three. Discovery and evaluation reuse the same arena, evidence, and scoring substrate — that is what lets a finding become a challenge without rework.</p>
           </div>
 
           <div class="pillars-grid">
@@ -1739,7 +1782,7 @@
         <div class="container">
           <div class="section-head">
             <h2>Development roadmap</h2>
-            <p>The engine and the console are shipped. What remains is the research runtime that completes an agent-grade arena, then the workbench that turns single engagements into repeated, comparable evaluations.</p>
+            <p>The engine and the console are shipped. What remains is the research runtime both objectives need, then the discovery lane that makes the platform useful to a researcher, and the workbench that turns single engagements into repeated, comparable evaluations.</p>
           </div>
 
           <div class="roadmap-timeline">
@@ -1781,7 +1824,7 @@
               </div>
             </div>
 
-            <div class="roadmap-horizon second">Next · agent-grade research, then comparable evaluation</div>
+            <div class="roadmap-horizon second">Next · the shared runtime, then the two lanes</div>
 
             <div class="roadmap-item">
               <div class="roadmap-badge"></div>
@@ -1790,8 +1833,20 @@
                 <span class="roadmap-status">Next</span>
               </div>
               <div class="roadmap-content">
-                <h3>Research-ready runtime</h3>
+                <h3>Research-ready runtime · shared prerequisite</h3>
                 <p>The tools a serious offensive agent still needs, each arena-scoped and fail-closed: structured HTTP inspect, replay, and modify that accepts a node and a relative path rather than a caller-supplied URL; confined PoC execution in disposable, resource-capped containers with no filesystem or egress; foothold-scoped SSH forwards; durable cross-process step, time, token, and cost budgets; and per-arena plus system-wide stop that drains work predictably.</p>
+              </div>
+            </div>
+
+            <div class="roadmap-item">
+              <div class="roadmap-badge"></div>
+              <div class="roadmap-meta">
+                <span class="roadmap-phase">D1–D4</span>
+                <span class="roadmap-status">Planned</span>
+              </div>
+              <div class="roadmap-content">
+                <h3>Discovery lane · vulnerability research</h3>
+                <p>The offensive half the engine is missing. Patch-diff and variant hunting: ingest a vulnerable release and its fix, make the security-relevant difference a first-class hashed object, and sweep for the same defect where the fix did not reach. A fuzzing and triage path that finally feeds the crash oracle, with corpora as versioned artifacts, campaigns inside the confined-execution boundary, and automatic minimization and deterministic reproduction. Binary, appliance, and VM intake — promoted out of the deferred list, because the products worth researching are largely appliances, not source-available web apps. And campaigns: one product worked across months, findings deduplicated across sessions and versions, tracked to a disclosure bundle whose every claim resolves to a recorded identity.</p>
               </div>
             </div>
 
@@ -1815,7 +1870,7 @@
               </div>
               <div class="roadmap-content">
                 <h3>Held-out flagship proof</h3>
-                <p>A private, held-out challenge set — public labs are calibration only — with a published leakage policy, disclosed scaffolding, repeated-trial methodology, and stated uncertainty. The artifact to publish is a reproducible comparison between two agent versions, not a single successful exploit.</p>
+                <p>Two artifacts, not interchangeable. First, a real vulnerability found and proven end to end on the platform — immutable identity, contained arena, observed effect, reproducible PoC, disclosure bundle — which does not wait on the evaluation workbench. Then a reproducible comparison between two agent versions over a held-out set built from confirmed findings with their truth withheld, published with its leakage policy, disclosed scaffolding, repeated-trial methodology, and stated uncertainty.</p>
               </div>
             </div>
 

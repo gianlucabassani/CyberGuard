@@ -3,9 +3,10 @@
 </p>
 
 <p align="center">
-  <b>A GUI-driven cyber evaluation arena for active challenges.</b><br>
-  Provision reproducible targets, connect a bring-your-own security agent, independently verify
-  what it achieves, and compare complete agent builds through scored, replayable runs.
+  <b>A GUI-driven arena for security work on real running systems.</b><br>
+  One engine, two objectives: <b>discovery</b> — find and prove real vulnerabilities with
+  reproducible setup and evidence-grade proof — and <b>evaluation</b> — measure and compare the
+  agents that hunt them, on held-out challenges.
 </p>
 
 <p align="center">
@@ -22,11 +23,17 @@
 
 ---
 
-Humans author and run engagements and evaluations; **the AI is the system under test**.
-Nidavellir is the environment, capability boundary, observer, referee, and comparison layer—not
-the pentesting agent. Interactive agents connect through scoped MCP gateways; persistent or
-external agents will use the same evidence/scoring boundary through generic drivers. The mature
-execution path runs locally with Docker.
+The two objectives are duals of one substrate. In **discovery** the target is under test and the
+participant — human or agent — is the instrument; the output is a vulnerability record: finding,
+PoC, observed effect, affected identity, disclosure state. In **evaluation** the AI is under test
+and Nidavellir is the environment, capability boundary, observer, referee, and comparison layer —
+never the pentesting agent itself. They meet at one asset: **a challenge is a solved discovery
+problem with its truth withheld**, which is why verified findings from real research are the only
+honest source of held-out evaluation material.
+
+Humans author and operate the work. Interactive agents connect through scoped MCP gateways;
+persistent or external agents will use the same evidence/scoring boundary through generic drivers.
+The mature execution path runs locally with Docker.
 
 > **AI-centered, never AI-required.** Built for testing AI agents and MCP-compliant throughout,
 > but every arena stays fully drivable by a human pentester with no model in the loop.
@@ -121,18 +128,21 @@ curl -sX POST localhost:8000/scenarios/import/vulhub -H "X-API-Key: dev-insecure
 ## Roadmap
 
 The provisioning→monitoring→validation→score→eval-export engine is shipped, and so is the console
-product model that gives every function a home. What remains is the research runtime that completes
-an agent-grade arena, then the workbench that turns single engagements into repeated, comparable
-evaluations. Full detail is in [`ROADMAP.md`](ROADMAP.md).
+product model that gives every function a home. What remains splits into a shared research runtime
+that both objectives need, a **discovery lane** (patch-diff and variant hunting, fuzzing into the
+existing crash oracle, binary/appliance/VM intake, campaigns and disclosure output), and an
+**evaluation lane** (durable experiment records and paired build comparison). Full detail is in
+[`ROADMAP.md`](ROADMAP.md).
 
 | Stage | Focus | Status |
 |---|---|---|
 | **Shipped engine** | Dynamic arenas, target intake, repo→service, monitoring, validators, scoring, eval export and replay | ✅ shipped |
 | **Research session** | Change evidence, file transfer, browser; proxy/sandbox/tunnel/durable guardrails remain | 🟢 partially shipped |
 | **Console architecture** | Engagements, Evaluations, Library, Activity, unified creation, contextual workspace and SSE | ✅ shipped |
-| **Research-ready runtime** | HTTP replay, confined PoC execution, tunnelling, fail-closed budgets and kill switches | 🟡 **next** |
+| **Research-ready runtime** | HTTP replay, confined PoC execution, tunnelling, fail-closed budgets and kill switches — the shared prerequisite | 🟡 **next** |
+| **Discovery lane** | Patch-diff & variant hunting, fuzzing + crash triage, binary/appliance/VM intake, campaigns & disclosure output | ◻ planned |
 | **Evaluation workbench** | Agent registry, suites, trials, active episodes and GUI comparison of build N vs N+1 | ◻ planned |
-| **Held-out proof** | Repeated private challenge suite and recorded comparison workflow | ◻ planned |
+| **Held-out proof** | A real vulnerability found and proven on-platform; then a comparison over challenges drawn from that work | ◻ planned |
 | **Deferred** | OAuth/multi-tenancy, live cloud/VM providers, purple-team, VNC and hosted-product concerns | ◻ deferred |
 
 ## Documentation

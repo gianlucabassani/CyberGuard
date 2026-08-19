@@ -122,6 +122,17 @@ until migrated safely. New operator-facing prose uses the glossary above.
 
 ## 2. Current status — shipped engine
 
+Read against the dual objective, the shipped engine is already most of a research
+substrate and only part of a research *toolkit*. Reproducible setup from an
+immutable identity, containment, the crash oracle, change intelligence, hashed
+patch artifacts, PoCs, and an evidence trail that outlives the arena all serve
+discovery today. What discovery lacks is offensive tooling (§4) and the lane in §5:
+nothing feeds the crash oracle, there is no variant hunting, no binary or VM
+intake, and no campaign-level view across sessions.
+
+For evaluation the split is the opposite: the observation and scoring half is
+shipped, and the durable experiment records that make runs comparable are not.
+
 ### S1 — Control plane and dynamic arenas · shipped
 
 - FastAPI orchestrator ↔ Redis/Celery worker ↔ provider drivers.
@@ -596,6 +607,15 @@ which is the most reliable signal for where the research runtime is still thin.
 
 ## 7. GUI-driven agent evaluation workbench
 
+This lane turns single engagements into repeated, comparable runs. It is the
+measurement half of the dual objective, and it depends on §5 for the material
+worth measuring on: without held-out challenges of known provenance, a comparison
+runs on public CTFs and known-CVE packs, which the participants may have trained
+on and any vendor can contest.
+
+E1–E5 can be built before that corpus exists — the machinery is independent of the
+challenges it runs — but publishing a comparison should not get ahead of it.
+
 ### E1 — Durable experiment model
 
 Add first-class records for agent builds, suites, evaluations, runs, and trials.
@@ -664,14 +684,28 @@ cost, or safety improved or regressed.
 
 ### P1 — Held-out flagship proof
 
-- Build a private/held-out challenge set; public labs are calibration only.
+There are two proofs to publish, and they are not interchangeable.
+
+**Discovery proof.** A real vulnerability in a real product, found and proven
+inside Nidavellir: immutable identity, contained arena, observed effect,
+reproducible PoC, disclosure bundle. This is what demonstrates the platform is
+useful to a researcher, and it can be published as soon as the D lane supports it —
+it does not wait on the evaluation workbench.
+
+**Comparison proof.** A reproducible agent-version comparison over a held-out
+suite:
+
+- Build the private/held-out challenge set **from confirmed discovery-lane
+  findings with their truth withheld**; public labs are calibration only.
 - Include static known-vulnerability, randomized, and active-change episodes.
 - Publish leakage policy, scaffold/tool disclosure, repeated-trial methodology,
   uncertainty, and infrastructure-failure handling.
 - Record the GUI journey: register builds → run evaluation → inspect proof → compare.
 
-**Acceptance.** The public artifact demonstrates a reproducible agent-version
-comparison, not merely a successful single exploit.
+**Acceptance.** The discovery artifact demonstrates a vulnerability found and
+proven end to end on the platform. The comparison artifact demonstrates a
+reproducible agent-version comparison — not merely a successful single exploit —
+on challenges whose provenance is stated and whose truth was never public.
 
 ### P2 — Optional LLM-application targets
 
@@ -684,17 +718,25 @@ model; do not create a separate evaluation product.
 
 ## 9. Explicitly deferred
 
-These do not block the single-team, self-hosted evaluation product:
+These do not block the single-team, self-hosted product on either objective:
 
 - MCP OAuth 2.1 and third-party tool-supply-chain defense;
 - multi-tenant workspaces, SSO, graduated organization RBAC, and hosted billing;
-- real AWS/OpenStack/libvirt apply and VM/binary desktop targets;
+- real AWS/OpenStack cloud apply at scale;
 - multi-agent red-vs-blue and defender detection scoring;
 - in-browser VNC/Guacamole and a full hosted web terminal;
 - large public leaderboards.
 
-Re-promote them only for a concrete need, roughly in this order: worker/socket
-isolation → OAuth/tool trust → multi-tenant identity → VM/cloud providers →
+**Promoted out of this list (2026-08-19):** VM, firmware, and binary target intake,
+and the local VM provider path, are now **D3**. They were deferred while the
+product was framed only as an agent-evaluation arena, where source-available
+targets are sufficient. Under the discovery objective they are load-bearing: the
+products worth researching are largely appliances and thick clients. Cloud
+provider *apply* remains deferred — a local hypervisor is what discovery needs, not
+a fleet.
+
+Re-promote the rest only for a concrete need, roughly in this order: worker/socket
+isolation → OAuth/tool trust → multi-tenant identity → cloud providers →
 multi-agent/purple-team.
 
 ---
@@ -708,6 +750,14 @@ multi-agent/purple-team.
   connectors, never the agent whose capability it claims to measure.
 - **AI-centered, never AI-required.** A human can operate an engagement and submit
   evidence without a model.
+- **Two objectives, one engine.** Discovery and evaluation are duals on the same
+  substrate. Reject any capability that serves one by forking the arena, the
+  evidence model, or the validators — a fork means the results stop meaning the
+  same thing. When a tool is added, a human in the workspace and an agent over MCP
+  drive the same bounded operation.
+- **A challenge is a solved discovery problem.** Held-out evaluation material comes
+  from verified findings with their truth withheld. Public labs calibrate; they do
+  not settle a comparison.
 - **Immutable identity before score.** Targets, agent builds, scenarios, tools,
   seeds, and starting state are recorded. A comparison without them is invalid.
 - **Deterministic proof before judgment.** Validators and observed effects outrank
@@ -729,6 +779,7 @@ multi-agent/purple-team.
 
 | Previous roadmap | New location |
 |---|---|
+| *(none — new lane, 2026-08-19)* | D1–D4 discovery: patch-diff/variant hunting, fuzzing + triage, binary/appliance/VM intake, campaigns and disclosure |
 | M1 repo→service | S2, shipped |
 | M2 monitoring/scoring | S3, shipped |
 | M3 eval/export/reference harness | S3, shipped; durable comparison continues in E1–E5 |

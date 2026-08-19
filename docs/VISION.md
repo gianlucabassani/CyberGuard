@@ -1,7 +1,8 @@
 # Vision
 
-> Nidavellir is the GUI-driven, bring-your-own-agent cyber evaluation arena for
-> active challenges.
+> Nidavellir is the GUI-driven, bring-your-own-agent arena for security work on
+> real running systems, serving two objectives on one engine: **discovery** of
+> real vulnerabilities, and **evaluation** of the agents that hunt them.
 
 ## Purpose
 
@@ -10,19 +11,40 @@ topologies, gives a human or external agent a contained research position,
 observes what actually happens, independently verifies evidence, and turns the
 session into a scored, replayable, auditable result.
 
-It is not the autonomous pentesting agent and not a generic model benchmark. It
-is the environment factory, capability boundary, observer, referee, and
-comparison layer around complete security agents—their model, scaffold, tools,
-memory, and policies together. Humans author and operate the work; the AI is the
-system under test.
+That substrate is deliberately dual-purpose.
+
+**Discovery.** As a vulnerability research platform, Nidavellir removes the
+unglamorous friction of real product research: standing a target up at an exact
+identity, containing it, working it from a stable position, and proving afterwards
+precisely what was hit. The output is a defensible vulnerability record — finding,
+PoC, observed effect, affected identity, disclosure state. Here the **target** is
+under test and the participant, human or agent, is the instrument.
+
+**Evaluation.** As an agent evaluation arena, Nidavellir measures complete security
+agents — model, scaffold, tools, memory, policies, budgets together — over held-out
+active challenges, and compares builds on verified capability rather than claims.
+Here the **AI** is under test and Nidavellir is the environment factory, capability
+boundary, observer, referee, and comparison layer.
+
+It is neither the autonomous pentesting agent nor a generic model benchmark.
+Humans author and operate the work.
+
+The objectives share one engine and one evidence model, and they meet at a single
+asset: **a challenge is a solved discovery problem with its truth withheld.**
+Verified findings from real research are the only honest source of held-out
+evaluation material — public CTFs and known-CVE packs calibrate, but cannot settle
+a comparison. That is why the platform is built to be useful to a researcher
+before it is built to rank an agent.
 
 ## Product journeys
 
 ### Engagement
 
 One human or agent researches one challenge or ad-hoc target in a live arena.
-The operator configures it, observes work, and reviews proof. Engagements support
-calibration, controlled benchmark tasks, and authorized vulnerability research.
+The operator configures it, observes work, and reviews proof. An engagement
+declares its purpose: *discovery* and *manual research* serve the discovery
+objective, while *benchmark* and *calibration* serve measurement. The declared
+purpose changes the result model, never the containment or the validators.
 
 ### Evaluation
 
