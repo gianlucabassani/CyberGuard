@@ -475,6 +475,33 @@ a PoC in the sandbox, transfers payload/evidence, inspects and replays HTTP, and
 tunnels to an internal service. Every action is scoped and traced; a breached
 budget freezes further work; containment tests remain green.
 
+### Immediate next steps (2026-08-19)
+
+R1 is the active milestone, taken in six shippable slices so each one lands with
+its own tests and live verification rather than as one large drop:
+
+1. **Provider primitive** — `http_request` across `base` (refuse), `docker-local`
+   (disposable arena-bound runner, mirroring the headless-browser pattern), and
+   `mock`; bounded bodies, hard timeout, no off-target redirects.
+2. **Orchestrator wrapper and REST route** — an `_http_target` resolver in the
+   shape of `_browser_target`: node plus relative path only, foothold targeting
+   refused, arena binding and rate limit enforced, bodies hashed and capped, audit
+   events body-free.
+3. **Transaction store** — bounded, arena-scoped, content-addressed request/response
+   records that a researcher can list and inspect, on the same evidence-artifact
+   discipline as patches.
+4. **Replay and modify** — re-send a stored transaction with edits, keeping the
+   original immutable so the pair is the evidence.
+5. **Attacker MCP tools** — the same operations over the gateway chain, with the
+   scope checks server-side and identical audit records.
+6. **Workspace surface and evidence attachment** — an HTTP tab that appears only
+   where it applies, streaming new transactions over the existing SSE channel, with
+   a transaction attachable to a finding by digest.
+
+Leave a counter seam in slices 2 and 5 for the durable budgets R3 introduces; do
+not invent a second accounting path. Detailed work items, seams, and per-slice
+acceptance live in the internal backlog.
+
 ---
 
 ## 5. Discovery lane — the vulnerability research platform
