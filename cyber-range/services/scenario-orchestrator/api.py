@@ -33,6 +33,7 @@ import dockerfile_synth
 import evidence_artifact
 import eval_export
 import generator
+import http_transactions
 import image_check
 import images
 import model_chat
@@ -2027,6 +2028,31 @@ def arena_http_request(
         raise HTTPException(status_code=501, detail=str(exc)) from exc
     if not result.get("success"):
         raise HTTPException(status_code=502, detail=result.get("error", "http request failed"))
+    request_view = {
+        "node": req.node,
+        "method": req.method.upper(),
+        "path": req.path,
+        "params": req.params,
+        "headers": req.headers,
+        "body": req.body,
+    }
+    response_keys = (
+        "status", "reason", "http_version", "headers", "header_count",
+        "redirect_location", "body", "body_bytes", "body_sha256", "truncated",
+    )
+    response_view = {key: result[key] for key in response_keys if key in result}
+    try:
+        transaction = http_transactions.record(
+            instance_id,
+            request=request_view,
+            response=response_view,
+            actor=principal.name,
+            elapsed_ms=result.get("elapsed_ms"),
+        )
+    except http_transactions.HttpTransactionError as exc:
+        detail = str(exc)
+        status = 413 if ("limit" in detail or "capacity" in detail) else 422
+        raise HTTPException(status_code=status, detail=detail) from exc
     db.record_event(
         instance_id,
         "http_request",
@@ -2044,10 +2070,68 @@ def arena_http_request(
             "body_sha256": result.get("body_sha256"),
             "truncated": result.get("truncated"),
             "elapsed_ms": result.get("elapsed_ms"),
+            "transaction_digest": transaction["digest"],
         },
         actor=principal.name,
     )
-    return {"node": req.node, "method": req.method.upper(), "path": req.path, **result}
+    return {
+        "node": req.node,
+        "method": req.method.upper(),
+        "path": req.path,
+        "transaction_digest": transaction["digest"],
+        **result,
+    }
+
+
+def _arena_record_or_404(instance_id: str) -> dict:
+    """Fetch a deployment record without requiring it to be active — read-only
+    research records (transactions, evidence) stay reviewable after destroy."""
+    record = db.get_deployment(instance_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Arena not found")
+    return record
+
+
+def _http_transaction_or_404(instance_id: str, digest: str):
+    try:
+        return http_transactions.get(instance_id, digest)
+    except http_transactions.HttpTransactionError as exc:
+        detail = str(exc)
+        if "digest" in detail and "invalid" in detail:
+            raise HTTPException(status_code=422, detail=detail) from exc
+        raise HTTPException(status_code=404, detail=detail) from exc
+
+
+@app.get("/arenas/{instance_id}/http/transactions")
+@limiter.limit(RATE_LIMIT_EXEC)
+def list_arena_http_transactions(
+    request: Request,
+    instance_id: str,
+    limit: int = Query(default=None, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    principal: Principal = Depends(require_principal),
+):
+    """List one arena's stored HTTP transactions, newest first (bounded)."""
+    _arena_record_or_404(instance_id)
+    _require_binding(principal, instance_id, bindings.CAP_EXEC)
+    return http_transactions.list_transactions(
+        instance_id, limit=limit, offset=offset
+    )
+
+
+@app.get("/arenas/{instance_id}/http/transactions/{digest}")
+@limiter.limit(RATE_LIMIT_EXEC)
+def get_arena_http_transaction(
+    request: Request,
+    instance_id: str,
+    digest: str,
+    principal: Principal = Depends(require_principal),
+):
+    """Retrieve one stored HTTP transaction envelope by digest."""
+    _arena_record_or_404(instance_id)
+    _require_binding(principal, instance_id, bindings.CAP_EXEC)
+    manifest, envelope = _http_transaction_or_404(instance_id, digest)
+    return {"manifest": manifest, "transaction": envelope}
 
 
 @app.post("/arenas/{instance_id}/files/upload")

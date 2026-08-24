@@ -134,6 +134,23 @@ HTTP_MAX_RESPONSE_BYTES = int(
 )
 HTTP_RUNNER_MEMORY = os.getenv("HTTP_RUNNER_MEMORY", "128m")
 
+# Arena HTTP transaction store (R1 slice 3): every primitive transaction is
+# recorded content-addressed (the canonical request+response envelope is the
+# digest), arena-scoped, and readable after the arena is destroyed. Identical
+# re-sends dedup onto one record; a replay links to its parent via `replay_of`.
+HTTP_TRANSACTIONS_DIR = Path(
+    os.getenv("HTTP_TRANSACTIONS_DIR", str(DATA_DIR / "http-transactions"))
+)
+HTTP_TRANSACTION_MAX_BYTES = int(
+    os.getenv("HTTP_TRANSACTION_MAX_BYTES", str(4 * 1024 * 1024))
+)
+HTTP_TRANSACTION_STORE_MAX_BYTES = int(
+    os.getenv("HTTP_TRANSACTION_STORE_MAX_BYTES", str(512 * 1024 * 1024))
+)
+HTTP_TRANSACTIONS_LIST_LIMIT = int(
+    os.getenv("HTTP_TRANSACTIONS_LIST_LIMIT", "100")
+)
+
 # OPENSTACK CREDENTIALS
 OS_USERNAME = os.getenv("OS_USERNAME")
 OS_PASSWORD = os.getenv("OS_PASSWORD")

@@ -109,6 +109,19 @@ Audit events carry metadata and digests only: parameter/header NAMES,
 `has_body`, `status`, `body_bytes`, `body_sha256` — never bodies or query
 values. Distinct from MITM `capture_traffic`, which observes packet flow.
 
+Every successful transaction is also persisted content-addressed (R1 slice 3):
+the canonical request+response envelope is stored under the arena's namespace,
+digest-keyed (`transaction_digest` in the response and audit event). Identical
+byte-for-byte re-sends dedup onto one record; any change — including a replay —
+produces a new record. Records are bounded per-envelope and store-wide, are
+readable after the arena is destroyed, and are served by:
+
+- `GET /arenas/{id}/http/transactions?limit=&offset=` — newest-first manifests;
+- `GET /arenas/{id}/http/transactions/{digest}` — the full envelope
+  (request and response, bodies included), integrity-verified on read.
+Both require the same `exec` binding as driving; a destroyed arena's records
+stay reviewable.
+
 ### Health Check
 
 `GET /health` — unauthenticated liveness probe, returns `{"status": "ok"}`.

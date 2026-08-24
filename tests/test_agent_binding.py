@@ -294,6 +294,83 @@ def test_http_request_transport_failure_is_502_and_unaudited(
     assert operator.db.list_events("bind-http-fail", types=("http_request",)) == []
 
 
+def test_http_transactions_persist_list_and_survive_destroy(
+    operator, agent, monkeypatch
+):
+    import api
+
+    outputs = {
+        "node_victim_name": "nv-victim",
+        "node_victim_private_ip": "172.30.0.2",
+        "node_victim_ports": {"80": "49000"},
+    }
+    _active_arena(operator.db, "bind-http-tx", outputs)
+    operator.post(
+        "/arenas/bind-http-tx/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+
+    def fake_http(_self, arena, node, ip, port, scheme, path, params, **options):
+        return {
+            "success": True, "url": f"http://{ip}:{port}{path}",
+            "status": 200, "reason": "OK", "http_version": "HTTP/1.1",
+            "headers": {"content-type": "text/plain"}, "header_count": 1,
+            "redirect_location": None, "body": "stored-body", "body_bytes": 11,
+            "body_sha256": "sha256:" + "e" * 64, "truncated": False,
+            "elapsed_ms": 9,
+        }
+
+    monkeypatch.setattr(api.Orchestrator, "http_request", fake_http)
+    sent = agent.post(
+        "/arenas/bind-http-tx/http/request",
+        json={"node": "victim", "path": "/a", "params": {"q": "v"}},
+    )
+    assert sent.status_code == 200, sent.text
+    digest = sent.json()["transaction_digest"]
+    assert digest.startswith("sha256:")
+    event = operator.db.list_events("bind-http-tx", types=("http_request",))[0]
+    assert event["payload"]["transaction_digest"] == digest
+
+    listed = agent.get("/arenas/bind-http-tx/http/transactions")
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    assert listed.json()["transactions"][0]["digest"] == digest
+
+    fetched = agent.get(f"/arenas/bind-http-tx/http/transactions/{digest}")
+    assert fetched.status_code == 200
+    envelope = fetched.json()["transaction"]
+    assert envelope["schema"] == "nidavellir/http-transaction/v1"
+    assert envelope["request"]["params"] == {"q": "v"}
+    assert envelope["response"]["body"] == "stored-body"
+
+    again = agent.post(
+        "/arenas/bind-http-tx/http/request",
+        json={"node": "victim", "path": "/a", "params": {"q": "v"}},
+    )
+    assert again.status_code == 200
+    assert again.json()["transaction_digest"] == digest
+    assert agent.get("/arenas/bind-http-tx/http/transactions").json()["total"] == 1
+
+    operator.db.update_deployment("bind-http-tx", status="destroying", actor="test")
+    operator.db.update_deployment("bind-http-tx", status="destroyed", actor="test")
+    assert agent.get("/arenas/bind-http-tx/http/transactions").status_code == 200
+    assert (
+        agent.get(f"/arenas/bind-http-tx/http/transactions/{digest}").status_code
+        == 200
+    )
+
+
+def test_unbound_agent_cannot_list_http_transactions(operator, agent):
+    _active_arena(operator.db, "bind-http-tx-nobind")
+    r = agent.get("/arenas/bind-http-tx-nobind/http/transactions")
+    assert r.status_code == 403
+    assert "not bound" in r.text
+
+
+def test_transactions_of_unknown_arena_are_404(operator, agent):
+    assert agent.get("/arenas/never-existed/http/transactions").status_code == 404
+
+
 def test_reported_xss_is_confirmed_only_by_browser_execution(operator, agent, monkeypatch):
     import api
 
