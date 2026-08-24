@@ -54,7 +54,7 @@ orchestrator re-checks the stance's capability on every call (defence in depth).
 
 | Stance | Purpose | Stance tools |
 |---|---|---|
-| **attacker** | offensive testing from the foothold | `get_topology`, `list_targets`, `run_command`, `browser_visit`, `upload_file`, `download_file`, `workspace_status`, `workspace_diff`, `workspace_patch_artifact`, `report_finding` |
+| **attacker** | offensive testing from the foothold | `get_topology`, `list_targets`, `run_command`, `browser_visit`, `http_request`, `list_http_transactions`, `get_http_transaction`, `replay_http_transaction`, `upload_file`, `download_file`, `workspace_status`, `workspace_diff`, `workspace_patch_artifact`, `report_finding` |
 | **defender** | detection over the event feed | `get_topology`, `query_events` |
 | **mitm** | in-path traffic observation | `get_topology`, `observe_traffic` |
 | **configurator** | bring a software-under-test up before the engagement | `get_setup_brief`, `workspace_status`, `workspace_diff`, `workspace_patch_artifact`, `propose_setup_step`, `await_setup_step`, `run_setup_step`, `upload_file`, `finish_setup` |
@@ -103,6 +103,24 @@ There is deliberately no URL argument: the orchestrator resolves an in-scope,
 non-foothold arena node and the provider attaches disposable Chromium only to that
 node's arena segment. This is also the execution oracle used when `report_finding`
 validates reflected XSS.
+
+### HTTP research primitive
+
+`http_request(arena_id, node, path="/", params={}, method="GET", headers={},
+body=None)` performs ONE HTTP transaction against an arena target's web service
+in a disposable arena-bound runner. Like `browser_visit`, there is no URL
+argument; redirects are reported as `redirect_location` metadata and never
+followed. The response carries bounded content plus its whole-body SHA-256, and
+every call persists a content-addressed transaction record:
+`list_http_transactions(arena_id)` (newest first), `get_http_transaction(
+arena_id, digest)` (full request/response envelope), and
+`replay_http_transaction(arena_id, digest, ...)` re-send a stored transaction
+with edits — `params`/`headers` merge onto the stored values,
+`node`/`path`/`method`/`body` replace when given — producing a new linked
+record (`replay_of`) while the original stays immutable. All four are
+budget-charged and traced with parameter/header NAMES and digests only, never
+bodies or values; the server applies the identical scope checks as the REST
+route.
 
 ## Reporting a finding
 

@@ -367,6 +367,102 @@ def test_unbound_agent_cannot_list_http_transactions(operator, agent):
     assert "not bound" in r.text
 
 
+def test_http_replay_links_a_new_record_and_keeps_the_original(
+    operator, agent, monkeypatch
+):
+    import api
+
+    outputs = {
+        "node_victim_name": "nv-victim",
+        "node_victim_private_ip": "172.30.0.2",
+        "node_victim_ports": {"80": "49000"},
+    }
+    _active_arena(operator.db, "bind-http-replay", outputs)
+    operator.post(
+        "/arenas/bind-http-replay/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+    calls = {"n": 0}
+
+    def fake_http(_self, arena, node, ip, port, scheme, path, params, **options):
+        calls["n"] += 1
+        body = f"response-{calls['n']}"
+        return {
+            "success": True, "url": f"http://{ip}:{port}{path}",
+            "status": 200 if calls["n"] == 1 else 500,
+            "reason": "OK" if calls["n"] == 1 else "Internal Server Error",
+            "http_version": "HTTP/1.1",
+            "headers": {"content-type": "text/plain"}, "header_count": 1,
+            "redirect_location": None, "body": body,
+            "body_bytes": len(body), "body_sha256": f"sha256:{'f' * 64}",
+            "truncated": False, "elapsed_ms": 5 + calls["n"],
+        }
+
+    monkeypatch.setattr(api.Orchestrator, "http_request", fake_http)
+    sent = agent.post(
+        "/arenas/bind-http-replay/http/request",
+        json={"node": "victim", "path": "/search", "headers": {"X-Keep": "yes"}},
+    )
+    assert sent.status_code == 200
+    parent_digest = sent.json()["transaction_digest"]
+
+    replayed = agent.post(
+        f"/arenas/bind-http-replay/http/transactions/{parent_digest}/replay",
+        json={"params": {"q": "' OR 1=1"}},
+    )
+    assert replayed.status_code == 200, replayed.text
+    child = replayed.json()
+    assert child["replay_of"] == parent_digest
+    assert child["transaction_digest"] != parent_digest
+
+    manifest, envelope = api.http_transactions.get(
+        "bind-http-replay", child["transaction_digest"]
+    )
+    assert manifest["replay_of"] == parent_digest
+    assert envelope["request"]["params"] == {"q": "' OR 1=1"}
+    assert envelope["request"]["headers"]["X-Keep"] == "yes"
+    assert envelope["request"]["path"] == "/search"
+
+    _, original = api.http_transactions.get("bind-http-replay", parent_digest)
+    assert original["request"]["params"] == {}
+    assert "replay_of" not in str(original)
+
+    event = operator.db.list_events(
+        "bind-http-replay", types=("http_request",)
+    )[0]
+    assert event["payload"]["replay_of"] == parent_digest
+
+    listed = agent.get("/arenas/bind-http-replay/http/transactions")
+    assert listed.json()["total"] == 2
+
+    assert agent.post(
+        "/arenas/bind-http-replay/http/transactions/sha256:" + "0" * 64 + "/replay",
+        json={},
+    ).status_code == 404
+    assert agent.post(
+        "/arenas/bind-http-replay/http/transactions/not-a-digest/replay",
+        json={},
+    ).status_code == 422
+
+    operator.db.update_deployment("bind-http-replay", status="destroying", actor="test")
+    operator.db.update_deployment("bind-http-replay", status="destroyed", actor="test")
+    assert agent.post(
+        f"/arenas/bind-http-replay/http/transactions/{parent_digest}/replay",
+        json={},
+    ).status_code == 409
+
+
+def test_unbound_agent_cannot_replay_http_transactions(operator, agent):
+    _active_arena(operator.db, "bind-http-replay-nobind")
+    r = agent.post(
+        "/arenas/bind-http-replay-nobind/http/transactions/"
+        "sha256:" + "0" * 64 + "/replay",
+        json={},
+    )
+    assert r.status_code == 403
+    assert "not bound" in r.text
+
+
 def test_transactions_of_unknown_arena_are_404(operator, agent):
     assert agent.get("/arenas/never-existed/http/transactions").status_code == 404
 

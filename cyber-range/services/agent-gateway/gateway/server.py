@@ -183,6 +183,55 @@ def build_server(cfg: GatewayConfig | None = None, context: GatewayContext | Non
             )
 
         @mcp.tool()
+        def http_request(
+            arena_id: str, node: str, path: str = "/",
+            params: dict[str, str] | None = None, method: str = "GET",
+            headers: dict[str, str] | None = None, body: str | None = None,
+        ) -> dict:
+            """Perform ONE HTTP transaction against an arena target's web
+            service. Supply a node and relative path; arbitrary URLs are not
+            accepted. Returns the bounded response with its whole-body SHA-256;
+            redirects are reported as metadata, never followed."""
+            return tools.http_request(
+                ctx(), arena_id=arena_id, node=node, path=path,
+                params=params, method=method, headers=headers, body=body,
+            )
+
+        @mcp.tool()
+        def list_http_transactions(
+            arena_id: str, limit: int | None = None, offset: int = 0,
+        ) -> dict:
+            """List this arena's stored HTTP transactions, newest first. Each
+            has a `digest` usable with get_http_transaction /
+            replay_http_transaction."""
+            return tools.list_http_transactions(
+                ctx(), arena_id=arena_id, limit=limit, offset=offset
+            )
+
+        @mcp.tool()
+        def get_http_transaction(arena_id: str, digest: str) -> dict:
+            """Fetch one stored HTTP transaction by digest: the manifest plus
+            the full request/response envelope."""
+            return tools.get_http_transaction(ctx(), arena_id=arena_id, digest=digest)
+
+        @mcp.tool()
+        def replay_http_transaction(
+            arena_id: str, digest: str, node: str | None = None,
+            path: str | None = None, params: dict[str, str] | None = None,
+            headers: dict[str, str] | None = None, method: str | None = None,
+            body: str | None = None,
+        ) -> dict:
+            """Re-send a stored transaction with edits. params/headers merge
+            onto the stored ones; node/path/method/body replace when given.
+            The original stays immutable; the new record links to it via
+            replay_of."""
+            return tools.replay_http_transaction(
+                ctx(), arena_id=arena_id, digest=digest, node=node,
+                path=path, params=params, headers=headers, method=method,
+                body=body,
+            )
+
+        @mcp.tool()
         def upload_file(
             arena_id: str, path: str, content_b64: str, node: str | None = None
         ) -> dict:

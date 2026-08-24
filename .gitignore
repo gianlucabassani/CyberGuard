@@ -40,7 +40,9 @@ htmlcov/
 /data/
 /cache/
 /keys/
-/traces/   # MCP gateway JSONL traces (compose mounts ./traces on gateway runs)
+
+# MCP gateway JSONL traces (compose mounts ./traces on gateway runs)
+/traces/
 
 # --- AI AGENT WORKSPACE (local working notes, never commit) ---
 /AGENT.md

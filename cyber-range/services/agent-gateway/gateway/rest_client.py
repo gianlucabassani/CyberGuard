@@ -114,6 +114,61 @@ class RestClient:
             },
         )
 
+    def http_request(
+        self, api_key: str, arena_id: str, node: str, path: str = "/",
+        params: dict[str, str] | None = None, method: str = "GET",
+        headers: dict[str, str] | None = None, body: str | None = None,
+    ) -> dict:
+        payload: dict = {"node": node, "path": path, "method": method}
+        if params:
+            payload["params"] = params
+        if headers:
+            payload["headers"] = headers
+        if body is not None:
+            payload["body"] = body
+        return self._request(
+            "POST", f"/arenas/{arena_id}/http/request", api_key, json=payload
+        )
+
+    def http_transactions(
+        self, api_key: str, arena_id: str, limit: int | None = None,
+        offset: int = 0,
+    ) -> dict:
+        query = urllib.parse.urlencode(
+            {k: v for k, v in (("limit", limit), ("offset", offset)) if v}
+        )
+        suffix = f"?{query}" if query else ""
+        return self._request(
+            "GET", f"/arenas/{arena_id}/http/transactions{suffix}", api_key
+        )
+
+    def http_transaction(self, api_key: str, arena_id: str, digest: str) -> dict:
+        encoded = urllib.parse.quote(digest, safe="")
+        return self._request(
+            "GET", f"/arenas/{arena_id}/http/transactions/{encoded}", api_key
+        )
+
+    def http_replay(
+        self, api_key: str, arena_id: str, digest: str, *,
+        node: str | None = None, path: str | None = None,
+        params: dict[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+        method: str | None = None, body: str | None = None,
+    ) -> dict:
+        encoded = urllib.parse.quote(digest, safe="")
+        payload: dict = {}
+        for key, val in (
+            ("node", node), ("path", path), ("params", params),
+            ("headers", headers), ("method", method), ("body", body),
+        ):
+            if val is not None:
+                payload[key] = val
+        return self._request(
+            "POST",
+            f"/arenas/{arena_id}/http/transactions/{encoded}/replay",
+            api_key, json=payload,
+        )
+
     def list_events(self, api_key: str, arena_id: str, limit: int = 100) -> dict:
         return self._request(
             "GET", f"/deployments/{arena_id}/events?limit={int(limit)}", api_key

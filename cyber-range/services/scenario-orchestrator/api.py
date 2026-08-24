@@ -2022,6 +2022,17 @@ def arena_http_request(
     metadata and digests only — never request or response bodies."""
     record = _active_arena_or_error(instance_id)
     _require_binding(principal, instance_id, bindings.CAP_EXEC)
+    return _execute_and_record_http(record, req, principal)
+
+
+def _execute_and_record_http(
+    record: dict, req: HttpRequestRequest, principal: Principal,
+    *, replay_of: str | None = None,
+) -> dict:
+    """Drive one gated HTTP transaction end-to-end: execute against the
+    resolved target, persist the content-addressed record, and emit the
+    body-free audit event. Shared choke point for drives and replays."""
+    instance_id = record["id"]
     try:
         result = _run_arena_http(record, req)
     except NotImplementedError as exc:
@@ -2048,39 +2059,41 @@ def arena_http_request(
             response=response_view,
             actor=principal.name,
             elapsed_ms=result.get("elapsed_ms"),
+            replay_of=replay_of,
         )
     except http_transactions.HttpTransactionError as exc:
         detail = str(exc)
         status = 413 if ("limit" in detail or "capacity" in detail) else 422
         raise HTTPException(status_code=status, detail=detail) from exc
-    db.record_event(
-        instance_id,
-        "http_request",
-        {
-            "node": req.node,
-            "method": req.method.upper(),
-            "path": req.path,
-            "param_names": sorted(req.params),
-            "header_names": sorted(req.headers),
-            "has_body": req.body is not None,
-            "status": result.get("status"),
-            "reason": result.get("reason"),
-            "redirect_location": result.get("redirect_location"),
-            "body_bytes": result.get("body_bytes"),
-            "body_sha256": result.get("body_sha256"),
-            "truncated": result.get("truncated"),
-            "elapsed_ms": result.get("elapsed_ms"),
-            "transaction_digest": transaction["digest"],
-        },
-        actor=principal.name,
-    )
-    return {
+    event_payload = {
+        "node": req.node,
+        "method": req.method.upper(),
+        "path": req.path,
+        "param_names": sorted(req.params),
+        "header_names": sorted(req.headers),
+        "has_body": req.body is not None,
+        "status": result.get("status"),
+        "reason": result.get("reason"),
+        "redirect_location": result.get("redirect_location"),
+        "body_bytes": result.get("body_bytes"),
+        "body_sha256": result.get("body_sha256"),
+        "truncated": result.get("truncated"),
+        "elapsed_ms": result.get("elapsed_ms"),
+        "transaction_digest": transaction["digest"],
+    }
+    if replay_of:
+        event_payload["replay_of"] = replay_of
+    db.record_event(instance_id, "http_request", event_payload, actor=principal.name)
+    response = {
         "node": req.node,
         "method": req.method.upper(),
         "path": req.path,
         "transaction_digest": transaction["digest"],
         **result,
     }
+    if replay_of:
+        response["replay_of"] = replay_of
+    return response
 
 
 def _arena_record_or_404(instance_id: str) -> dict:
@@ -2132,6 +2145,91 @@ def get_arena_http_transaction(
     _require_binding(principal, instance_id, bindings.CAP_EXEC)
     manifest, envelope = _http_transaction_or_404(instance_id, digest)
     return {"manifest": manifest, "transaction": envelope}
+
+
+class HttpReplayRequest(BaseModel):
+    """Optional edits over a stored transaction. params/headers MERGE onto the
+    stored values (modify one field without restating the rest); node, path,
+    method and body REPLACE when provided. The stored record is never mutated —
+    a replay always produces a new linked transaction."""
+
+    node: str | None = Field(default=None, min_length=1, max_length=64)
+    path: str | None = Field(default=None, min_length=1, max_length=2048)
+    params: dict[str, str] | None = Field(default=None)
+    headers: dict[str, str] | None = Field(default=None)
+    method: str | None = Field(default=None, min_length=1, max_length=32)
+    body: str | None = Field(
+        default=None, max_length=config.HTTP_MAX_REQUEST_BYTES
+    )
+
+    @model_validator(mode="after")
+    def _bounded_overrides(self):
+        if self.path is not None:
+            parsed = urllib.parse.urlsplit(self.path)
+            if (
+                not self.path.startswith("/")
+                or self.path.startswith("//")
+                or parsed.scheme
+                or parsed.netloc
+                or parsed.fragment
+                or "\x00" in self.path
+            ):
+                raise ValueError("path must be an arena-relative URL path without a fragment")
+            if parsed.query:
+                raise ValueError("put query values in params, not path")
+        if self.method is not None and not re.fullmatch(r"[A-Za-z]{1,32}", self.method):
+            raise ValueError("method must be 1-32 alphabetic characters")
+        if self.params is not None:
+            if len(self.params) > 32:
+                raise ValueError("params may contain at most 32 entries")
+            for key, value in self.params.items():
+                if not key or len(key) > 128 or len(value) > 4096:
+                    raise ValueError("http parameter names/values exceed configured bounds")
+        if self.headers is not None:
+            if len(self.headers) > 32:
+                raise ValueError("headers may contain at most 32 entries")
+            for key, value in self.headers.items():
+                if (
+                    not key
+                    or "\r" in key
+                    or "\n" in key
+                    or "\r" in value
+                    or "\n" in value
+                    or len(key) > 128
+                    or len(value) > 4096
+                ):
+                    raise ValueError("http header names/values exceed configured bounds")
+        return self
+
+
+@app.post("/arenas/{instance_id}/http/transactions/{digest}/replay")
+@limiter.limit(RATE_LIMIT_EXEC)
+def replay_arena_http_transaction(
+    request: Request,
+    instance_id: str,
+    digest: str,
+    req: HttpReplayRequest,
+    principal: Principal = Depends(require_principal),
+):
+    """Re-send one stored transaction with optional edits; the original stays
+    immutable and the new record links to it via `replay_of`."""
+    record = _active_arena_or_error(instance_id)
+    _require_binding(principal, instance_id, bindings.CAP_EXEC)
+    _, stored = _http_transaction_or_404(instance_id, digest)
+    sreq = stored.get("request") or {}
+    merged = {
+        "node": req.node if req.node is not None else sreq.get("node", "victim"),
+        "path": req.path if req.path is not None else sreq.get("path", "/"),
+        "params": {**(sreq.get("params") or {}), **(req.params or {})},
+        "headers": {**(sreq.get("headers") or {}), **(req.headers or {})},
+        "method": (req.method or sreq.get("method") or "GET").upper(),
+        "body": req.body if req.body is not None else sreq.get("body"),
+    }
+    try:
+        effective = HttpRequestRequest(**merged)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _execute_and_record_http(record, effective, principal, replay_of=digest)
 
 
 @app.post("/arenas/{instance_id}/files/upload")

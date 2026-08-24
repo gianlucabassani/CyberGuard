@@ -86,6 +86,40 @@ class _FakeRestClient:
             "dom_sha256": "sha256:" + "b" * 64,
         }
 
+    def http_request(self, api_key, arena_id, node, path="/", params=None,
+                     method="GET", headers=None, body=None):
+        self.calls.append(
+            ("http_request", api_key, arena_id, node, path, params,
+             method, headers, body)
+        )
+        return {
+            "success": True, "node": node, "status": 200, "reason": "OK",
+            "body": "<html>ok</html>", "body_bytes": 13,
+            "body_sha256": "sha256:" + "c" * 64,
+            "transaction_digest": "sha256:" + "d" * 64,
+        }
+
+    def http_transactions(self, api_key, arena_id, limit=None, offset=0):
+        self.calls.append(("http_transactions", api_key, arena_id, limit, offset))
+        return {"total": 1, "offset": offset, "limit": limit or 100,
+                "transactions": [{"digest": "sha256:" + "d" * 64}]}
+
+    def http_transaction(self, api_key, arena_id, digest):
+        self.calls.append(("http_transaction", api_key, arena_id, digest))
+        return {"manifest": {"digest": digest},
+                "transaction": {"request": {"path": "/"}, "response": {}}}
+
+    def http_replay(self, api_key, arena_id, digest, *, node=None, path=None,
+                    params=None, headers=None, method=None, body=None):
+        self.calls.append(
+            ("http_replay", api_key, arena_id, digest, node, path, params,
+             headers, method, body)
+        )
+        return {
+            "success": True, "status": 302, "replay_of": digest,
+            "transaction_digest": "sha256:" + "e" * 64,
+        }
+
     def report_finding(self, api_key, arena_id, title, cwe=None, node=None, evidence=None,
                        path=None, param=None, payload=None, oast_token=None, poc=None,
                        evidence_artifact_digests=None):
@@ -260,6 +294,54 @@ def test_headless_browser_proxies_is_budgeted_and_traces_metadata(tmp_path):
         tools.browser_visit(ctx, "a1", "web")
     with pytest.raises(ToolNotAllowed):
         tools.browser_visit(_ctx(stance=Stance.defender), "a1", "web")
+
+
+def test_http_tools_proxy_are_budgeted_and_trace_metadata_only(tmp_path):
+    ctx = _ctx(stance=Stance.attacker, trace_dir=str(tmp_path))
+    ctx.step_budget = 4
+
+    sent = tools.http_request(
+        ctx, "a1", "web", "/login", {"u": "admin"}, "post",
+        {"X-Proof": "1"}, "secret-payload",
+    )
+    assert sent["transaction_digest"].startswith("sha256:")
+    call = next(c for c in ctx.client.calls if c[0] == "http_request")
+    assert call[3:9] == (
+        "web", "/login", {"u": "admin"}, "post",
+        {"X-Proof": "1"}, "secret-payload",
+    )
+
+    listed = tools.list_http_transactions(ctx, "a1", limit=5)
+    assert listed["total"] == 1
+    fetched = tools.get_http_transaction(ctx, "a1", "sha256:" + "d" * 64)
+    assert fetched["manifest"]["digest"] == "sha256:" + "d" * 64
+    replayed = tools.replay_http_transaction(
+        ctx, "a1", "sha256:" + "d" * 64, params={"q": "' OR 1=1"},
+    )
+    assert replayed["replay_of"] == "sha256:" + "d" * 64
+    replay_call = next(c for c in ctx.client.calls if c[0] == "http_replay")
+    # only provided overrides cross the boundary
+    assert replay_call[6:] == ({"q": "' OR 1=1"}, None, None, None)
+
+    assert ctx.steps_used == 4
+    with pytest.raises(tools.BudgetExceeded):
+        tools.http_request(ctx, "a1", "web")
+
+    trace_body = (tmp_path / "a1.jsonl").read_text()
+    assert '"param_names": ["u", "q"]' in trace_body or '"param_names": ["u"]' in trace_body
+    assert '"digest": "sha256:' in trace_body
+    for secret in ("admin", "secret-payload", "<script>"):
+        assert secret not in trace_body
+
+    for tool_name, fn, args in (
+        ("http_request", tools.http_request, ("a1", "web")),
+        ("list_http_transactions", tools.list_http_transactions, ("a1",)),
+        ("get_http_transaction", tools.get_http_transaction, ("a1", "sha256:" + "0" * 64)),
+        ("replay_http_transaction", tools.replay_http_transaction,
+         ("a1", "sha256:" + "0" * 64)),
+    ):
+        with pytest.raises(ToolNotAllowed):
+            fn(_ctx(stance=Stance.defender), *args)
 
 
 def test_report_finding_forwards_verification_inputs():
@@ -457,7 +539,9 @@ def test_attacker_session_also_registers_the_attacker_tools():
     names = {t.name for t in asyncio.run(mcp.list_tools())}
     assert {"run_command", "list_targets", "get_topology", "report_finding",
             "workspace_status", "workspace_diff", "workspace_patch_artifact",
-            "upload_file", "download_file", "browser_visit"} <= names
+            "upload_file", "download_file", "browser_visit",
+            "http_request", "list_http_transactions",
+            "get_http_transaction", "replay_http_transaction"} <= names
 
 
 def test_workspace_tools_proxy_and_are_stance_gated():

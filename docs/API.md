@@ -122,6 +122,15 @@ readable after the arena is destroyed, and are served by:
 Both require the same `exec` binding as driving; a destroyed arena's records
 stay reviewable.
 
+`POST /arenas/{id}/http/transactions/{digest}/replay` re-sends a stored
+transaction (R1 slice 4). Overrides are optional: `params`/`headers` MERGE
+onto the stored values, while `node`, `path`, `method`, and `body` REPLACE
+when provided. The stored record is never mutated — every replay produces a
+new content-addressed transaction whose manifest links to its parent via
+`replay_of` (surfaced in the response and audit event too). Replays require
+the arena to be active and carry the same binding/scope/rate-limit checks as
+a direct drive; unknown digests are 404, malformed ones 422.
+
 ### Health Check
 
 `GET /health` — unauthenticated liveness probe, returns `{"status": "ok"}`.

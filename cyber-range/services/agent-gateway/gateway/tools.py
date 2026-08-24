@@ -455,6 +455,126 @@ def browser_visit(
     return result
 
 
+def http_request(
+    ctx: GatewayContext,
+    arena_id: str,
+    node: str,
+    path: str = "/",
+    params: dict[str, str] | None = None,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    body: str | None = None,
+) -> dict:
+    """Perform ONE HTTP transaction against an arena target's web service
+    (never an arbitrary URL). Scope checks are server-side; traces and the
+    audit event carry names and digests only — never bodies or values."""
+    _guard(ctx, "http_request")
+    _check_budget(ctx)
+    args = {
+        "node": node, "method": method.upper(), "path": path,
+        "param_names": sorted((params or {}).keys()),
+        "header_names": sorted((headers or {}).keys()),
+        "has_body": body is not None,
+    }
+    try:
+        result = ctx.client.http_request(
+            ctx.session.api_key, arena_id, node, path, params, method,
+            headers, body,
+        )
+    except Exception:
+        _trace(ctx, "http_request", args, ok=False, arena_id=arena_id)
+        raise
+    ctx.steps_used += 1
+    _trace(
+        ctx, "http_request",
+        {**args,
+         "status": (result or {}).get("status"),
+         "transaction_digest": (result or {}).get("transaction_digest")},
+        ok=True, arena_id=arena_id,
+    )
+    return result
+
+
+def list_http_transactions(
+    ctx: GatewayContext, arena_id: str,
+    limit: int | None = None, offset: int = 0,
+) -> dict:
+    """List the arena's stored HTTP transactions, newest first."""
+    _guard(ctx, "list_http_transactions")
+    _check_budget(ctx)
+    args = {"limit": limit, "offset": offset}
+    try:
+        result = ctx.client.http_transactions(
+            ctx.session.api_key, arena_id, limit, offset
+        )
+    except Exception:
+        _trace(ctx, "list_http_transactions", args, ok=False, arena_id=arena_id)
+        raise
+    ctx.steps_used += 1
+    _trace(
+        ctx, "list_http_transactions",
+        {**args, "total": (result or {}).get("total")},
+        ok=True, arena_id=arena_id,
+    )
+    return result
+
+
+def get_http_transaction(ctx: GatewayContext, arena_id: str, digest: str) -> dict:
+    """Fetch one stored HTTP transaction envelope by digest."""
+    _guard(ctx, "get_http_transaction")
+    _check_budget(ctx)
+    try:
+        result = ctx.client.http_transaction(ctx.session.api_key, arena_id, digest)
+    except Exception:
+        _trace(ctx, "get_http_transaction", {"digest": digest}, ok=False, arena_id=arena_id)
+        raise
+    ctx.steps_used += 1
+    _trace(ctx, "get_http_transaction", {"digest": digest}, ok=True, arena_id=arena_id)
+    return result
+
+
+def replay_http_transaction(
+    ctx: GatewayContext,
+    arena_id: str,
+    digest: str,
+    *,
+    node: str | None = None,
+    path: str | None = None,
+    params: dict[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+    method: str | None = None,
+    body: str | None = None,
+) -> dict:
+    """Re-send a stored HTTP transaction with optional edits; the new record
+    links to the original via `replay_of`. Same server-side scope checks as a
+    direct request."""
+    _guard(ctx, "replay_http_transaction")
+    _check_budget(ctx)
+    args = {
+        "digest": digest, "node": node, "path": path, "method": method,
+        "param_names": sorted((params or {}).keys()) if params else [],
+        "header_names": sorted((headers or {}).keys()) if headers else [],
+        "has_body": body is not None,
+    }
+    try:
+        result = ctx.client.http_replay(
+            ctx.session.api_key, arena_id, digest, node=node, path=path,
+            params=params, headers=headers, method=method, body=body,
+        )
+    except Exception:
+        _trace(ctx, "replay_http_transaction", args, ok=False, arena_id=arena_id)
+        raise
+    ctx.steps_used += 1
+    _trace(
+        ctx, "replay_http_transaction",
+        {**args,
+         "status": (result or {}).get("status"),
+         "transaction_digest": (result or {}).get("transaction_digest")},
+        ok=True, arena_id=arena_id,
+    )
+    return result
+
+
 def report_finding(
     ctx: GatewayContext,
     arena_id: str,

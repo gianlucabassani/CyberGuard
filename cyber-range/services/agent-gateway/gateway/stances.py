@@ -49,7 +49,9 @@ STANCE_TOOLS: dict[Stance, frozenset[str]] = {
     Stance.attacker: frozenset(
         {"get_topology", "list_targets", "run_command", "report_finding",
          "workspace_status", "workspace_diff", "workspace_patch_artifact",
-         "upload_file", "download_file", "browser_visit"}
+         "upload_file", "download_file", "browser_visit",
+         "http_request", "list_http_transactions", "get_http_transaction",
+         "replay_http_transaction"}
     ),
     Stance.defender: frozenset({"get_topology", "query_events"}),
     Stance.mitm: frozenset({"get_topology", "observe_traffic"}),
