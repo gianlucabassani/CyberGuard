@@ -25,8 +25,9 @@ import re
 import shlex
 import shutil
 import subprocess  # nosec B404 — fixed argv (no shell), timeout, SSRF-guarded host
-import tempfile
 import tarfile
+import tempfile
+import time
 import urllib.parse
 from pathlib import PurePosixPath
 
@@ -104,6 +105,15 @@ _WORKSPACE_MAX_LINES = 500
 _WORKSPACE_RAW_CAP = 1024 * 1024
 _TRANSFER_ROOT = PurePosixPath("/opt/nidavellir-transfer")
 _BROWSER_MARKER_ATTR = "data-nidavellir-xss"
+
+# Arena HTTP primitive (R1): request validation and response parsing. The
+# method/header rules keep shell metacharacters and CR/LF injection out of the
+# runner argv; framing headers are dropped because curl computes them itself.
+_HTTP_METHOD_RE = re.compile(r"^[A-Za-z]{1,32}$")
+_HTTP_HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_HTTP_FRAMING_HEADERS = frozenset({"content-length", "transfer-encoding"})
+_HTTP_MAX_HEADERS = 32
+_HTTP_MAX_HEADER_VALUE_CHARS = 4096
 
 
 def _as_git_remote(repo: str) -> str:
@@ -365,6 +375,190 @@ class DockerLocalProvider(RangeProvider):
                     logger.warning(
                         f"[{instance_id}] could not remove browser runner: {cleanup_error}"
                     )
+
+    @staticmethod
+    def _validated_http_headers(headers):
+        """Normalize caller headers into an argv-safe list, or return an error.
+
+        Framing headers are dropped (curl computes its own Content-Length /
+        Transfer-Encoding); everything else must be a plain token with no line
+        breaks so the value can never split into extra runner arguments.
+        """
+        cleaned: list[tuple[str, str]] = []
+        for name, value in (headers or {}).items():
+            name = str(name).strip()
+            value = str(value)
+            if not _HTTP_HEADER_NAME_RE.match(name):
+                return None, f"invalid header name {name!r}"
+            if "\r" in value or "\n" in value:
+                return None, f"header {name!r} contains a line break"
+            if len(value) > _HTTP_MAX_HEADER_VALUE_CHARS:
+                return None, f"header {name!r} exceeds the value limit"
+            if name.lower() in _HTTP_FRAMING_HEADERS:
+                continue
+            cleaned.append((name, value))
+        if len(cleaned) > _HTTP_MAX_HEADERS:
+            return None, "too many request headers"
+        return cleaned, None
+
+    def http_request(
+        self, instance_id, node, target_ip, port, scheme, path, params=None,
+        *, method="GET", headers=None, body=None,
+    ):
+        """Perform one arena-bound HTTP request in a disposable curl runner.
+
+        Mirrors browser_visit's containment: the target IP must match the
+        selected node's Docker attachment, the runner joins only that arena
+        network, and resources/time/output are bounded. Redirects are never
+        followed — a redirect surfaces as ``redirect_location`` metadata, so
+        the primitive can never be walked off the resolved target.
+        """
+        if scheme not in ("http", "https"):
+            return {"success": False, "error": "http scheme must be http or https"}
+        if not isinstance(method, str) or not _HTTP_METHOD_RE.match(method):
+            return {"success": False, "error": "invalid HTTP method"}
+        method = method.upper()
+        if not path.startswith("/") or path.startswith("//") or "\x00" in path:
+            return {"success": False, "error": "http path must be relative to the target"}
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            return {"success": False, "error": "invalid http target port"}
+        if not 1 <= port <= 65535:
+            return {"success": False, "error": "invalid http target port"}
+
+        header_list, header_error = self._validated_http_headers(headers)
+        if header_error:
+            return {"success": False, "error": header_error}
+
+        body_bytes = b""
+        if body is not None:
+            if not isinstance(body, str):
+                return {"success": False, "error": "http request body must be text"}
+            if "\x00" in body:
+                return {"success": False, "error": "http request body must not contain NUL"}
+            body_bytes = body.encode("utf-8")
+            if len(body_bytes) > config.HTTP_MAX_REQUEST_BYTES:
+                return {
+                    "success": False,
+                    "error": "http request body exceeds the configured limit",
+                }
+
+        target = self._find_node_container(instance_id, node)
+        if target is None:
+            return {"success": False, "error": f"node {node!r} not found in arena {instance_id}"}
+        target.reload()
+        networks = (target.attrs.get("NetworkSettings") or {}).get("Networks") or {}
+        network = next(
+            (name for name, data in networks.items() if data.get("IPAddress") == target_ip),
+            None,
+        )
+        expected_prefix = f"nidavellir-{self._short(instance_id)}"
+        if network is None or not network.startswith(expected_prefix):
+            return {"success": False, "error": "target IP is not attached to this arena"}
+
+        query = urllib.parse.urlencode(params or {})
+        url = f"{scheme}://{target_ip}:{port}{path}" + (f"?{query}" if query else "")
+        command = [
+            "-s", "-S", "-i",
+            "--max-time", str(config.HTTP_TIMEOUT_SECONDS),
+            "--connect-timeout", "5",
+            "-X", method,
+        ]
+        for header_name, header_value in header_list:
+            command += ["-H", f"{header_name}: {header_value}"]
+        if body_bytes:
+            command += ["--data-binary", body]
+        command.append(url)
+
+        runner = None
+        started = time.monotonic()
+        try:
+            runner = self.client.containers.run(
+                image=config.HTTP_RUNNER_IMAGE,
+                entrypoint="curl",
+                command=command,
+                detach=True,
+                network=network,
+                labels={LABEL_LAB_ID: instance_id, LABEL_ROLE: "http"},
+                cap_drop=["ALL"],
+                security_opt=["no-new-privileges:true"],
+                read_only=True,
+                tmpfs={"/run/nidavellir-http": "rw,noexec,nosuid,size=1m"},
+                environment={"HOME": "/run/nidavellir-http"},
+                mem_limit=config.HTTP_RUNNER_MEMORY,
+                nano_cpus=500_000_000,
+                pids_limit=64,
+            )
+            result = runner.wait(timeout=config.HTTP_TIMEOUT_SECONDS + 5)
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            status_code = int((result or {}).get("StatusCode", 1))
+            raw = runner.logs(stdout=True, stderr=False)
+            raw = raw if isinstance(raw, bytes) else str(raw or "").encode()
+            if status_code != 0:
+                stderr = runner.logs(stdout=False, stderr=True)
+                stderr = (
+                    stderr.decode("utf-8", "replace")
+                    if isinstance(stderr, bytes) else str(stderr or "")
+                )
+                detail = stderr[:1000] or f"curl exited {status_code}"
+                if status_code == 28:
+                    detail = f"request timed out after {config.HTTP_TIMEOUT_SECONDS}s"
+                return {"success": False, "error": detail}
+            return self._parse_http_transaction(url, raw, elapsed_ms)
+        except Exception as exc:  # noqa: BLE001 - provider errors are returned, not leaked
+            return {"success": False, "error": f"http request failed: {exc}"}
+        finally:
+            if runner is not None:
+                try:
+                    runner.remove(force=True)
+                except Exception as cleanup_error:  # noqa: BLE001 - best-effort cleanup
+                    logger.warning(
+                        f"[{instance_id}] could not remove http runner: {cleanup_error}"
+                    )
+
+    @staticmethod
+    def _parse_http_transaction(url, raw, elapsed_ms):
+        """Split one raw ``curl -i`` response into bounded, hashed output.
+
+        The digest always covers the FULL body even when truncation keeps only
+        the leading bytes, so evidence stays verifiable against the wire.
+        """
+        head, separator, body_bytes = raw.partition(b"\r\n\r\n")
+        if not separator:
+            head, body_bytes = raw, b""
+        lines = head.decode("latin-1").split("\r\n")
+        parts = lines[0].split(" ", 2) if lines else []
+        try:
+            status = int(parts[1]) if len(parts) > 1 else 0
+        except ValueError:
+            status = 0
+        headers: dict[str, str] = {}
+        for line in lines[1:]:
+            name, _, value = line.partition(":")
+            name = name.strip().lower()
+            if not name:
+                continue
+            value = value.strip()
+            headers[name] = f"{headers[name]}, {value}" if name in headers else value
+        full_len = len(body_bytes)
+        truncated = full_len > config.HTTP_MAX_RESPONSE_BYTES
+        kept = body_bytes[: config.HTTP_MAX_RESPONSE_BYTES]
+        return {
+            "success": True,
+            "url": url,
+            "status": status,
+            "reason": (parts[2] if len(parts) > 2 else "")[:128],
+            "http_version": (parts[0] if parts else "")[:32],
+            "headers": headers,
+            "header_count": len(headers),
+            "redirect_location": headers.get("location"),
+            "body": kept.decode("utf-8", "replace"),
+            "body_bytes": full_len,
+            "body_sha256": f"sha256:{hashlib.sha256(body_bytes).hexdigest()}",
+            "truncated": truncated,
+            "elapsed_ms": elapsed_ms,
+        }
 
     # --- interface -----------------------------------------------------------
 

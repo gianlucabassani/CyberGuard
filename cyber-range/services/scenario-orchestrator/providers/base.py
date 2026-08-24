@@ -179,3 +179,36 @@ class RangeProvider(ABC):
         raise NotImplementedError(
             f"the {self.name!r} provider does not support headless browsing yet"
         )
+
+    def http_request(
+        self,
+        instance_id: str,
+        node: str,
+        target_ip: str,
+        port: int,
+        scheme: str,
+        path: str,
+        params: dict[str, str] | None = None,
+        *,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        body: str | None = None,
+    ) -> dict:
+        """Perform one arena-target HTTP transaction with a disposable runner.
+
+        The control plane derives ``target_ip``/``port`` from provider outputs;
+        callers supply only a node plus a relative path — never an arbitrary
+        URL. Providers must attach the runner only to the selected target's
+        arena network, never follow redirects off the resolved target, bound
+        time and returned content, and report the whole-body digest. A non-2xx
+        status is still a successful observation: ``success`` reports transport
+        failure, not an HTTP verdict.
+        Result contract:
+            {"success": True, "status": int, "headers": {...}, "body": str,
+             "body_bytes": int, "body_sha256": "sha256:...", "truncated": bool,
+             "redirect_location": str | None, ...}
+          | {"success": False, "error": "..."}
+        """
+        raise NotImplementedError(
+            f"the {self.name!r} provider does not support arena HTTP requests yet"
+        )

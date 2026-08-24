@@ -5,6 +5,7 @@ Extracted from the original Orchestrator MOCK_MODE branch — keeps the demo,
 tests and CI working with zero cloud cost. Output keys deliberately match
 `infra/terraform/outputs.tf` so the UI renders identically in both modes.
 """
+import hashlib
 import logging
 import time
 
@@ -132,5 +133,29 @@ class MockProvider(RangeProvider):
             "dom_bytes": 48,
             "dom_sha256": "",
             "executed": False if execution_marker else None,
+            "note": "simulated; MOCK_MODE",
+        }
+
+    def http_request(
+        self, instance_id, node, target_ip, port, scheme, path, params=None,
+        *, method="GET", headers=None, body=None,
+    ):
+        query = "&".join(f"{key}={value}" for key, value in (params or {}).items())
+        url = f"{scheme}://{target_ip}:{port}{path}" + (f"?{query}" if query else "")
+        logger.info(f"[{instance_id}] 🎭 SIMULATING http {method} {url}")
+        payload = f"[mock {node}] {method} {url}\n(simulated; MOCK_MODE)\n".encode()
+        return {
+            "success": True,
+            "url": url,
+            "status": 200,
+            "reason": "OK",
+            "http_version": "HTTP/1.1",
+            "headers": {"content-type": "text/plain"},
+            "header_count": 1,
+            "redirect_location": None,
+            "body": payload.decode("utf-8", "replace"),
+            "body_bytes": len(payload),
+            "body_sha256": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+            "truncated": False,
             "note": "simulated; MOCK_MODE",
         }

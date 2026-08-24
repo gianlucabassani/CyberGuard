@@ -120,6 +120,20 @@ HEADLESS_BROWSER_MAX_OUTPUT_BYTES = int(
 )
 HEADLESS_BROWSER_MEMORY = os.getenv("HEADLESS_BROWSER_MEMORY", "512m")
 
+# Arena-bound HTTP research primitive (ROADMAP R1). Like the headless browser,
+# the runner is a disposable, capability-dropped container attached only to the
+# selected arena segment. Redirects are never followed off the resolved target;
+# request/response bodies are bounded before they cross the container boundary.
+HTTP_RUNNER_IMAGE = os.getenv("HTTP_RUNNER_IMAGE", "curlimages/curl:8.14.1")
+HTTP_TIMEOUT_SECONDS = int(os.getenv("HTTP_TIMEOUT_SECONDS", "15"))
+HTTP_MAX_REQUEST_BYTES = int(
+    os.getenv("HTTP_MAX_REQUEST_BYTES", str(256 * 1024))
+)
+HTTP_MAX_RESPONSE_BYTES = int(
+    os.getenv("HTTP_MAX_RESPONSE_BYTES", str(1024 * 1024))
+)
+HTTP_RUNNER_MEMORY = os.getenv("HTTP_RUNNER_MEMORY", "128m")
+
 # OPENSTACK CREDENTIALS
 OS_USERNAME = os.getenv("OS_USERNAME")
 OS_PASSWORD = os.getenv("OS_PASSWORD")
