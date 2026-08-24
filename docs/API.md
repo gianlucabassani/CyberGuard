@@ -89,6 +89,26 @@ The same primitive is the authoritative `reflected_xss` validator. It injects a
 platform-owned nonce payload and confirms CWE-79 only when JavaScript writes that
 nonce into the rendered DOM. Reflection without execution is not credited.
 
+### Arena-target HTTP research primitive (R1)
+
+`POST /arenas/{id}/http/request` accepts
+`{node, path="/", params={}, method="GET", headers={}, body=null}` and performs
+ONE HTTP transaction against that arena node's web service in a disposable,
+arena-network-bound curl runner. It never accepts a URL: the API resolves the
+target from the arena's outputs (unknown node → 404, foothold → 403, no web
+port → 422), and the provider re-verifies IP ownership before starting the
+runner (capability-dropped, no-new-privileges, read-only, CPU/RAM/PID/time
+bounded). Redirects are never followed — they are returned as
+`redirect_location` metadata so the primitive cannot be walked off-target.
+Request bodies are text-only and capped (`HTTP_MAX_REQUEST_BYTES`, 256 KiB);
+framing headers (`Content-Length`, `Transfer-Encoding`) are dropped. The
+response returns bounded content (`HTTP_MAX_RESPONSE_BYTES`, 1 MiB) with the
+whole-body SHA-256 even when truncated. `success` reports transport failure
+only — any observed status (including 5xx) is a successful transaction.
+Audit events carry metadata and digests only: parameter/header NAMES,
+`has_body`, `status`, `body_bytes`, `body_sha256` — never bodies or query
+values. Distinct from MITM `capture_traffic`, which observes packet flow.
+
 ### Health Check
 
 `GET /health` — unauthenticated liveness probe, returns `{"status": "ok"}`.

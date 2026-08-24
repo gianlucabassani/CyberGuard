@@ -176,6 +176,124 @@ def test_headless_browser_is_arena_target_scoped_and_body_free_in_audit(
     ).status_code == 422
 
 
+def test_unbound_agent_cannot_send_http_requests(operator, agent):
+    _active_arena(operator.db, "bind-http-nobind")
+    r = agent.post("/arenas/bind-http-nobind/http/request", json={"node": "victim"})
+    assert r.status_code == 403
+    assert "not bound" in r.text
+
+
+def test_http_request_is_arena_target_scoped_and_body_free_in_audit(
+    operator, agent, monkeypatch
+):
+    import api
+
+    outputs = {
+        "node_jump_name": "nv-jump",
+        "node_jump_private_ip": "172.30.0.3",
+        "node_jump_ssh_command": "docker exec nv-jump sh",
+        "node_victim_name": "nv-victim",
+        "node_victim_private_ip": "172.30.0.2",
+        "node_victim_ports": {"80": "49000"},
+    }
+    _active_arena(operator.db, "bind-http", outputs)
+    operator.post(
+        "/arenas/bind-http/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+    seen = {}
+
+    def fake_http(_self, arena, node, ip, port, scheme, path, params, **options):
+        seen.update(
+            arena=arena, node=node, ip=ip, port=port, scheme=scheme,
+            path=path, params=params, options=options,
+        )
+        return {
+            "success": True, "url": f"http://{ip}:{port}{path}",
+            "status": 200, "reason": "OK", "http_version": "HTTP/1.1",
+            "headers": {"content-type": "text/html"}, "header_count": 1,
+            "redirect_location": None,
+            "body": "<html>response-secret</html>", "body_bytes": 27,
+            "body_sha256": "sha256:" + "d" * 64,
+            "truncated": False, "elapsed_ms": 12,
+        }
+
+    monkeypatch.setattr(api.Orchestrator, "http_request", fake_http)
+    response = agent.post(
+        "/arenas/bind-http/http/request",
+        json={
+            "node": "victim", "path": "/login", "params": {"u": "param-secret"},
+            "method": "post", "headers": {"X-Proof": "1"},
+            "body": "body-secret",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == 200
+    assert response.json()["body"] == "<html>response-secret</html>"
+    assert response.json()["method"] == "POST"
+    assert response.json()["path"] == "/login"
+    assert seen["ip"] == "172.30.0.2" and seen["port"] == 80
+    assert seen["scheme"] == "http" and seen["path"] == "/login"
+    assert seen["options"]["method"] == "POST"
+    assert seen["options"]["headers"] == {"X-Proof": "1"}
+    assert seen["options"]["body"] == "body-secret"
+
+    event = operator.db.list_events("bind-http", types=("http_request",))[0]
+    payload_text = str(event["payload"])
+    assert event["payload"]["method"] == "POST"
+    assert event["payload"]["param_names"] == ["u"]
+    assert event["payload"]["header_names"] == ["X-Proof"]
+    assert event["payload"]["has_body"] is True
+    assert event["payload"]["status"] == 200
+    assert event["payload"]["body_bytes"] == 27
+    assert event["payload"]["body_sha256"] == "sha256:" + "d" * 64
+    for secret in ("param-secret", "body-secret", "response-secret"):
+        assert secret not in payload_text
+
+    assert agent.post(
+        "/arenas/bind-http/http/request", json={"node": "jump"}
+    ).status_code == 403
+    assert agent.post(
+        "/arenas/bind-http/http/request", json={"node": "ghost"}
+    ).status_code == 404
+    assert agent.post(
+        "/arenas/bind-http/http/request",
+        json={"node": "victim", "path": "http://example.com/"},
+    ).status_code == 422
+    assert agent.post(
+        "/arenas/bind-http/http/request",
+        json={"node": "victim", "headers": {"X-Bad": "a\r\nX-Injected: 1"}},
+    ).status_code == 422
+
+
+def test_http_request_transport_failure_is_502_and_unaudited(
+    operator, agent, monkeypatch
+):
+    import api
+
+    outputs = {
+        "node_victim_name": "nv-victim",
+        "node_victim_private_ip": "172.30.0.2",
+        "node_victim_ports": {"80": "49000"},
+    }
+    _active_arena(operator.db, "bind-http-fail", outputs)
+    operator.post(
+        "/arenas/bind-http-fail/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+
+    def failing_http(_self, *args, **options):
+        return {"success": False, "error": "curl: (7) could not connect"}
+
+    monkeypatch.setattr(api.Orchestrator, "http_request", failing_http)
+    response = agent.post(
+        "/arenas/bind-http-fail/http/request", json={"node": "victim"}
+    )
+    assert response.status_code == 502
+    assert "could not connect" in response.text
+    assert operator.db.list_events("bind-http-fail", types=("http_request",)) == []
+
+
 def test_reported_xss_is_confirmed_only_by_browser_execution(operator, agent, monkeypatch):
     import api
 

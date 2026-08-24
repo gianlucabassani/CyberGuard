@@ -1809,6 +1809,54 @@ class BrowserVisitRequest(BaseModel):
         return self
 
 
+class HttpRequestRequest(BaseModel):
+    node: str = Field(min_length=1, max_length=64)
+    path: str = Field(default="/", min_length=1, max_length=2048)
+    params: dict[str, str] = Field(default_factory=dict)
+    method: str = Field(default="GET", min_length=1, max_length=32)
+    headers: dict[str, str] = Field(default_factory=dict)
+    body: str | None = Field(
+        default=None, max_length=config.HTTP_MAX_REQUEST_BYTES
+    )
+
+    @model_validator(mode="after")
+    def _bounded_request(self):
+        parsed = urllib.parse.urlsplit(self.path)
+        if (
+            not self.path.startswith("/")
+            or self.path.startswith("//")
+            or parsed.scheme
+            or parsed.netloc
+            or parsed.fragment
+            or "\x00" in self.path
+        ):
+            raise ValueError("path must be an arena-relative URL path without a fragment")
+        if parsed.query:
+            raise ValueError("put query values in params, not path")
+        if len(self.params) > 32:
+            raise ValueError("params may contain at most 32 entries")
+        for key, value in self.params.items():
+            if not key or len(key) > 128 or len(value) > 4096:
+                raise ValueError("http parameter names/values exceed configured bounds")
+        if not re.fullmatch(r"[A-Za-z]{1,32}", self.method):
+            raise ValueError("method must be 1-32 alphabetic characters")
+        self.method = self.method.upper()
+        if len(self.headers) > 32:
+            raise ValueError("headers may contain at most 32 entries")
+        for key, value in self.headers.items():
+            if (
+                not key
+                or "\r" in key
+                or "\n" in key
+                or "\r" in value
+                or "\n" in value
+                or len(key) > 128
+                or len(value) > 4096
+            ):
+                raise ValueError("http header names/values exceed configured bounds")
+        return self
+
+
 def _transfer_foothold(record: dict, requested: str | None) -> str:
     outputs = record.get("outputs") or {}
     if isinstance(outputs, str):
@@ -1875,6 +1923,43 @@ def _browser_target(record: dict, node: str) -> tuple[str, int, str]:
     return ip, port, scheme
 
 
+def _http_target(record: dict, node: str) -> tuple[str, int, str]:
+    """(ip, port, scheme) for an HTTP research request — same contract as
+    `_browser_target`: unknown node -> 404, foothold -> 403, no web port ->
+    422. The caller never supplies a URL; only this resolver picks the host."""
+    outputs = record.get("outputs") or {}
+    if isinstance(outputs, str):
+        try:
+            outputs = json.loads(outputs)
+        except json.JSONDecodeError:
+            outputs = {}
+    known = {
+        key[len("node_"):-len("_name")]
+        for key in outputs
+        if key.startswith("node_") and key.endswith("_name")
+    }
+    if node not in known:
+        raise HTTPException(status_code=404, detail=f"Unknown target node '{node}'")
+    _, footholds = setup_phase.derive_nodes_footholds(outputs)
+    if node in footholds:
+        raise HTTPException(status_code=403, detail="http request targets must not be footholds")
+    target = _victim_internal_target(outputs, node)
+    if target is None:
+        raise HTTPException(status_code=422, detail="target has no reachable web port")
+    ip, port = target
+    scheme = "https" if port in (443, 8443) else "http"
+    return ip, port, scheme
+
+
+def _run_arena_http(record: dict, req: HttpRequestRequest) -> dict:
+    ip, port, scheme = _http_target(record, req.node)
+    orch = Orchestrator(provider_name=record.get("provider"))
+    return orch.http_request(
+        record["id"], req.node, ip, port, scheme, req.path, req.params,
+        method=req.method, headers=req.headers, body=req.body,
+    )
+
+
 def _run_arena_browser(
     record: dict, node: str, path: str, params: dict[str, str] | None,
     *, wait_ms: int = 1500, execution_marker: str | None = None,
@@ -1920,6 +2005,49 @@ def browser_visit(
         actor=principal.name,
     )
     return {"node": req.node, **result}
+
+
+@app.post("/arenas/{instance_id}/http/request")
+@limiter.limit(RATE_LIMIT_EXEC)
+def arena_http_request(
+    request: Request,
+    instance_id: str,
+    req: HttpRequestRequest,
+    principal: Principal = Depends(require_principal),
+):
+    """Perform one arena-target HTTP transaction; caller URLs are never accepted.
+
+    The response body is returned bounded and hashed; the audit event carries
+    metadata and digests only — never request or response bodies."""
+    record = _active_arena_or_error(instance_id)
+    _require_binding(principal, instance_id, bindings.CAP_EXEC)
+    try:
+        result = _run_arena_http(record, req)
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=result.get("error", "http request failed"))
+    db.record_event(
+        instance_id,
+        "http_request",
+        {
+            "node": req.node,
+            "method": req.method.upper(),
+            "path": req.path,
+            "param_names": sorted(req.params),
+            "header_names": sorted(req.headers),
+            "has_body": req.body is not None,
+            "status": result.get("status"),
+            "reason": result.get("reason"),
+            "redirect_location": result.get("redirect_location"),
+            "body_bytes": result.get("body_bytes"),
+            "body_sha256": result.get("body_sha256"),
+            "truncated": result.get("truncated"),
+            "elapsed_ms": result.get("elapsed_ms"),
+        },
+        actor=principal.name,
+    )
+    return {"node": req.node, "method": req.method.upper(), "path": req.path, **result}
 
 
 @app.post("/arenas/{instance_id}/files/upload")

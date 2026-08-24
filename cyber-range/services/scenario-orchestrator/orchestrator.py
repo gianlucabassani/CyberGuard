@@ -109,6 +109,19 @@ class Orchestrator:
             instance_id, node, target_ip, port, scheme, path, params, **options
         )
 
+    def http_request(
+        self, instance_id: str, node: str, target_ip: str, port: int,
+        scheme: str, path: str, params: dict | None = None, *,
+        method: str = "GET", headers: dict | None = None,
+        body: str | None = None,
+    ):
+        # R3 budget counter seam: durable step/cost accounting attaches at this
+        # single choke point once budgets land; no second accounting path.
+        return self.provider.http_request(
+            instance_id, node, target_ip, port, scheme, path, params,
+            method=method, headers=headers, body=body,
+        )
+
     def _load_scenario(self, scenario_name: str) -> dict:
         """Load scenario YAML configuration (delegates to the registry)."""
         return load_scenario(scenario_name)
