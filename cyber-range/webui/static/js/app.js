@@ -456,6 +456,7 @@
       let events = [];
       try { events = (JSON.parse(m.data).events || []); } catch (e) { return; }
       if (events.length) engOnActivity(events);
+      if (events.some((e) => e.type === "http_request")) httpLoad();
     });
     stream.onerror = () => {
       // EventSource retries on its own; give up and poll only if it keeps failing.
@@ -1558,6 +1559,193 @@
     );
   }
 
+  /* ---- HTTP research workspace (R1 slice 6): send / inspect / replay /
+         attach — the console only presents; scope stays server-side ------- */
+  let httpArena = null;
+  let httpReadOnly = false;
+  let httpReplayOf = null;
+
+  function httpEsc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
+  function initHttpWorkspace() {
+    const card = document.getElementById("http-card");
+    if (!card) return;
+    httpArena = card.dataset.arena;
+    httpReadOnly = card.dataset.readonly === "1";
+    httpLoad();
+  }
+
+  function httpLoad() {
+    const list = document.getElementById("http-list");
+    if (!list || !httpArena) return;
+    fetch("/api/arenas/" + encodeURIComponent(httpArena) +
+          "/http/transactions?limit=50")
+      .then((r) => r.json())
+      .then((d) => {
+        const rows = d.transactions || [];
+        if (!rows.length) {
+          list.innerHTML =
+            '<div class="card-pad muted" style="padding:18px">No stored transactions' +
+            (httpReadOnly ? " from this engagement." : " yet — open Send request above.") + "</div>";
+          return;
+        }
+        const body = rows.map((t) => {
+          const req = t.request || {};
+          return '<tr>' +
+            '<td class="mono" style="white-space:nowrap">' + httpEsc((t.created_at || "").replace("T", " ").slice(0, 19)) + "</td>" +
+            '<td><span class="badge badge--info">' + httpEsc(req.method) + "</span> <b>" +
+              httpEsc(req.path) + "</b><div class=\"faint mono\" style=\"font-size:11px\">" + httpEsc(req.node) + "</div></td>" +
+            '<td class="mono">' + httpEsc((t.response || {}).status) + "</td>" +
+            '<td class="mono">' + httpEsc((t.response || {}).body_bytes) +
+              ((t.response || {}).truncated ? ' <span class="badge badge--idle">cut</span>' : "") + "</td>" +
+            '<td class="mono" style="font-size:11px" title="' + httpEsc(t.digest) + '">' +
+              (t.replay_of ? '<i class="fa-solid fa-rotate-left" title="replay of ' + httpEsc(t.replay_of.slice(0, 19)) + '…"></i> ' : "") +
+              httpEsc(String(t.digest).slice(7, 19)) + "…</td>" +
+            '<td style="white-space:nowrap">' +
+              '<button class="btn btn-sm" onclick="Nidavellir.httpInspect(\'' + t.digest + '\')"><i class="fa-solid fa-magnifying-glass"></i></button> ' +
+              (httpReadOnly ? "" :
+                '<button class="btn btn-sm" title="Replay with edits" onclick="Nidavellir.httpReplay(\'' + t.digest + '\')"><i class="fa-solid fa-rotate-left"></i></button> ') +
+              '<button class="btn btn-sm" title="Attach to finding" onclick="Nidavellir.httpAttach(\'' + t.digest + '\')"><i class="fa-solid fa-paperclip"></i></button>' +
+            "</td></tr>";
+        }).join("");
+        list.innerHTML =
+          '<table class="table"><thead><tr><th>Time</th><th>Request</th><th>Status</th>' +
+          "<th>Bytes</th><th>Digest</th><th></th></tr></thead><tbody>" + body + "</tbody></table>";
+      })
+      .catch(() => { list.innerHTML = '<div class="card-pad muted" style="padding:18px">Transaction store unavailable.</div>'; });
+  }
+
+  function httpToggleForm() {
+    const form = document.getElementById("http-form");
+    if (!form) return;
+    form.hidden = !form.hidden;
+    if (!form.hidden && httpReplayOf === null) {
+      const err = document.getElementById("http-err");
+      if (err) err.textContent = "";
+    }
+  }
+
+  function httpRefresh() { httpLoad(); }
+
+  function httpParseParams(text) {
+    const out = {};
+    new URLSearchParams(text || "").forEach((v, k) => { if (k) out[k] = v; });
+    return out;
+  }
+
+  function httpParseHeaders(text) {
+    const out = {};
+    String(text || "").split("\n").forEach((line) => {
+      const i = line.indexOf(":");
+      if (i > 0) out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    });
+    return out;
+  }
+
+  function httpSend() {
+    const err = document.getElementById("http-err");
+    const node = document.getElementById("http-node").value;
+    if (!node) { if (err) err.textContent = "This arena has no web-capable target node."; return; }
+    const payload = {
+      node: node,
+      path: document.getElementById("http-path").value || "/",
+      method: document.getElementById("http-method").value,
+    };
+    const params = httpParseParams(document.getElementById("http-params").value);
+    if (Object.keys(params).length) payload.params = params;
+    const headers = httpParseHeaders(document.getElementById("http-headers").value);
+    if (Object.keys(headers).length) payload.headers = headers;
+    let url;
+    if (httpReplayOf) {
+      url = "/api/arenas/" + encodeURIComponent(httpArena) + "/http/transactions/" +
+            encodeURIComponent(httpReplayOf) + "/replay";
+      payload.body = document.getElementById("http-body").value;
+    } else {
+      url = "/api/arenas/" + encodeURIComponent(httpArena) + "/http/request";
+      const body = document.getElementById("http-body").value;
+      if (body) payload.body = body;
+    }
+    postJson(url, payload).then(({ status, data }) => {
+      if (status === 200) {
+        httpReplayOf = null;
+        if (err) err.textContent = "";
+        document.getElementById("http-form").hidden = true;
+        httpLoad();
+      } else if (err) {
+        err.textContent = (data && (data.detail || data.error)) || ("HTTP " + status);
+      }
+    }).catch(() => { if (err) err.textContent = "request failed"; });
+  }
+
+  function httpFillForm(req) {
+    document.getElementById("http-node").value = req.node || "";
+    document.getElementById("http-method").value = (req.method || "GET").toUpperCase();
+    document.getElementById("http-path").value = req.path || "/";
+    document.getElementById("http-params").value =
+      Object.entries(req.params || {}).map(([k, v]) => k + "=" + v).join("&");
+    document.getElementById("http-headers").value =
+      Object.entries(req.headers || {}).map(([k, v]) => k + ": " + v).join("\n");
+    document.getElementById("http-body").value = req.body || "";
+  }
+
+  function httpInspect(digest) {
+    fetch("/api/arenas/" + encodeURIComponent(httpArena) +
+          "/http/transactions/" + encodeURIComponent(digest))
+      .then((r) => r.json())
+      .then((d) => {
+        const env = d.transaction || {};
+        const panel = document.getElementById("http-inspect");
+        document.getElementById("http-inspect-title").textContent = digest;
+        panel.dataset.digest = digest;
+        document.getElementById("http-inspect-request").textContent =
+          JSON.stringify(env.request || {}, null, 2);
+        document.getElementById("http-inspect-response").textContent =
+          JSON.stringify(env.response || {}, null, 2);
+        panel.hidden = false;
+      })
+      .catch(() => {});
+  }
+
+  function httpReplay(digest) {
+    if (httpReadOnly) return;
+    fetch("/api/arenas/" + encodeURIComponent(httpArena) +
+          "/http/transactions/" + encodeURIComponent(digest))
+      .then((r) => r.json())
+      .then((d) => {
+        const env = d.transaction || {};
+        httpFillForm(env.request || {});
+        httpReplayOf = digest;
+        const form = document.getElementById("http-form");
+        form.hidden = false;
+        const err = document.getElementById("http-err");
+        if (err) err.textContent = "Replaying " + digest.slice(7, 19) + "… — edits produce a linked copy";
+        form.scrollIntoView({ behavior: "smooth", block: "center" });
+      })
+      .catch(() => {});
+  }
+
+  function httpAttach(digest) {
+    const input = document.getElementById("mf-transactions");
+    if (!input) return;
+    const existing = input.value.trim().split(/[\s,]+/).filter(Boolean);
+    if (!existing.includes(digest)) existing.push(digest);
+    input.value = existing.join(" ");
+    const form = document.getElementById("mf-form");
+    if (form) {
+      form.hidden = false;
+      form.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+
+  function httpAttachFromInspect() {
+    const panel = document.getElementById("http-inspect");
+    if (panel && panel.dataset.digest) httpAttach(panel.dataset.digest);
+  }
+
   /* ---- Findings card: operator verify + manual add (arena detail) -------- */
   window.copyPoc = function (btn) {
     const pre = btn.parentNode.querySelector("pre");
@@ -1597,6 +1785,8 @@
       poc: (document.getElementById("mf-poc").value || "").trim(),
       evidence_artifact_digests: (document.getElementById("mf-artifact").value || "").trim()
         ? [(document.getElementById("mf-artifact").value || "").trim()] : [],
+      transaction_digests: (document.getElementById("mf-transactions")?.value || "").trim()
+        .split(/[\s,]+/).filter(Boolean),
     }).then(({ status, data }) => {
       if (status === 200) location.reload();
       else if (err) err.textContent = data.error || data.detail || "HTTP " + status;
@@ -2371,6 +2561,8 @@
     openAgentConfig, closeAgentConfig, revokeAgent, pauseAgent, resumeAgent,
     initEngagement, engDecide, openConfigurator, closeConfigurator,
     initAgents,
+    initHttpWorkspace, httpToggleForm, httpSend, httpInspect, httpReplay,
+    httpAttach, httpAttachFromInspect, httpRefresh,
     fit: function () { const cy = specCy["topo"]; if (cy) { cy.resize(); cy.fit(null, 36); } },
   };
   document.addEventListener("keydown", (e) => {

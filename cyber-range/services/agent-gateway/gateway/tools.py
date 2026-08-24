@@ -588,6 +588,7 @@ def report_finding(
     oast_token: str | None = None,
     poc: str | None = None,
     evidence_artifact_digests: list[str] | None = None,
+    transaction_digests: list[str] | None = None,
 ) -> dict:
     """Report a discovered vulnerability. The engagement goal is to DISCOVER the
     arena's known weaknesses; this records your finding for scoring. Pass the
@@ -598,9 +599,10 @@ def report_finding(
     and value that trigger it — e.g. an XSS/SQLi vector), and/or `oast_token` (an
     out-of-band callback token). Always include a `poc`: a short, reproducible
     proof a human can run to verify it — a `curl`/HTTP request, a shell command,
-    or numbered steps (include the observed result). The acknowledgement stays
-    deliberately neutral — it won't tell you whether you were right, or whether
-    verification passed."""
+    or numbered steps (include the observed result). Bind stored HTTP traffic as
+    evidence with `transaction_digests` (digests from http_request /
+    replay_http_transaction). The acknowledgement stays deliberately neutral — it
+    won't tell you whether you were right, or whether verification passed."""
     _guard(ctx, "report_finding")
     trace_args = {"title": title[:256], "cwe": cwe, "node": node}
     try:
@@ -608,6 +610,7 @@ def report_finding(
             ctx.session.api_key, arena_id, title, cwe=cwe, node=node, evidence=evidence,
             path=path, param=param, payload=payload, oast_token=oast_token, poc=poc,
             evidence_artifact_digests=evidence_artifact_digests,
+            transaction_digests=transaction_digests,
         )
     except Exception:
         _trace(ctx, "report_finding", trace_args, ok=False, arena_id=arena_id)

@@ -4,6 +4,7 @@ import os
 import re
 import time
 from datetime import datetime, timedelta
+from urllib.parse import quote, urlencode
 
 import requests
 from flask import (
@@ -842,6 +843,7 @@ _WORKSPACE_TABS = (
     ("overview", "Overview", "fa-gauge-high"),
     ("live", "Live", "fa-wave-square"),
     ("target", "Target", "fa-bullseye"),
+    ("http", "HTTP", "fa-paper-plane"),
     ("findings", "Findings", "fa-bug"),
     ("evidence", "Evidence", "fa-box-archive"),
     ("changes", "Changes", "fa-code-compare"),
@@ -922,10 +924,20 @@ def arena_detail(instance_id):
     )
     trace = _api_get(f"/arenas/{instance_id}/eval-export")[0] if has_agent_activity else None
 
+    # HTTP research tab (R1 slice 6): present wherever the arena has (or had)
+    # a web-capable target, or any stored transaction — so a destroyed arena's
+    # records stay reviewable. Driving is refused server-side when read-only.
+    http_total = (_api_get(f"/arenas/{instance_id}/http/transactions?limit=1")[0] or {}).get("total", 0)
+    web_capable = any(
+        (n.get("ports") or n.get("url")) and not n.get("foothold")
+        for n in _parse_nodes(outputs)
+    )
+
     tabs = _workspace_tabs({
         "overview": True,
         "live": True,
         "target": is_sut or bool(preflight_ok and preflight),
+        "http": bool(http_total) or web_capable,
         "findings": True,
         "evidence": bool(evidence_artifacts or monitor_signals),
         "changes": bool(workspaces),
@@ -937,6 +949,7 @@ def arena_detail(instance_id):
         "findings": len(findings),
         "evidence": len(evidence_artifacts) + len(monitor_signals),
         "changes": len(workspaces),
+        "http": http_total,
     })
 
     return render_template(
@@ -1687,6 +1700,54 @@ def arena_workspaces_proxy(instance_id):
     return jsonify(data or {"workspaces": []}), (200 if ok else 502)
 
 
+# HTTP research primitive (R1 slice 6): the console only presents and forwards —
+# scope resolution, binding checks, bounding and hashing stay orchestrator-side.
+
+@app.route("/api/arenas/<instance_id>/http/transactions", methods=["GET"])
+def http_transactions_proxy(instance_id):
+    """Stored HTTP transactions for this arena, newest first."""
+    params = {
+        key: request.args[key]
+        for key in ("limit", "offset")
+        if key in request.args
+    }
+    query = f"?{urlencode(params)}" if params else ""
+    data, ok = _api_get(f"/arenas/{instance_id}/http/transactions{query}")
+    return jsonify(data or {"total": 0, "transactions": []}), (200 if ok else 502)
+
+
+@app.route("/api/arenas/<instance_id>/http/transactions/<digest>", methods=["GET"])
+def http_transaction_proxy(instance_id, digest):
+    """One stored HTTP transaction envelope by digest."""
+    data, ok = _api_get(
+        f"/arenas/{instance_id}/http/transactions/{quote(digest, safe='')}"
+    )
+    return jsonify(data or {"error": "not found"}), (200 if ok else 404)
+
+
+@app.route("/api/arenas/<instance_id>/http/request", methods=["POST"])
+def http_request_proxy(instance_id):
+    """Drive one arena-target HTTP transaction from the workspace."""
+    body = request.get_json(silent=True) or {}
+    data, code = _api_post(f"/arenas/{instance_id}/http/request", body)
+    return jsonify(data), code
+
+
+@app.route(
+    "/api/arenas/<instance_id>/http/transactions/<digest>/replay",
+    methods=["POST"],
+)
+def http_replay_proxy(instance_id, digest):
+    """Re-send a stored transaction with edits; the original stays immutable."""
+    body = request.get_json(silent=True) or {}
+    data, code = _api_post(
+        f"/arenas/{instance_id}/http/transactions/"
+        f"{quote(digest, safe='')}/replay",
+        body,
+    )
+    return jsonify(data), code
+
+
 @app.route("/api/arenas/<instance_id>/preflight", methods=["GET"])
 def arena_preflight_proxy(instance_id):
     """Immutable target identity and infrastructure readiness for the arena."""
@@ -1819,6 +1880,7 @@ def manual_finding_proxy(instance_id):
         "evidence": (body.get("evidence") or "").strip() or None,
         "poc": (body.get("poc") or "").strip() or None,
         "evidence_artifact_digests": body.get("evidence_artifact_digests") or [],
+        "transaction_digests": body.get("transaction_digests") or [],
     }
     data, code = _api_post(f"/arenas/{instance_id}/findings/manual", payload)
     return jsonify(data), code

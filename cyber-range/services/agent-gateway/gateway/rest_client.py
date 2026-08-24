@@ -186,11 +186,12 @@ class RestClient:
                        evidence: str | None = None, path: str | None = None,
                        param: str | None = None, payload: str | None = None,
                        oast_token: str | None = None, poc: str | None = None,
-                       evidence_artifact_digests: list[str] | None = None) -> dict:
+                       evidence_artifact_digests: list[str] | None = None,
+                       transaction_digests: list[str] | None = None) -> dict:
         body: dict = {"title": title}
         # Only send set fields; path/param/payload/oast_token are the optional
         # verification inputs that let the orchestrator ACTIVELY confirm a finding;
-        # `poc` is the reproducible proof a human can run to verify it.
+        # `poc` is the reproducible proof a human can run to verify.
         for key, val in (("cwe", cwe), ("node", node), ("evidence", evidence),
                          ("path", path), ("param", param), ("payload", payload),
                          ("oast_token", oast_token), ("poc", poc)):
@@ -198,6 +199,8 @@ class RestClient:
                 body[key] = val
         if evidence_artifact_digests:
             body["evidence_artifact_digests"] = evidence_artifact_digests
+        if transaction_digests:
+            body["transaction_digests"] = transaction_digests
         return self._request("POST", f"/arenas/{arena_id}/findings", api_key, json=body)
 
     def announce_agent(self, api_key: str, arena_id: str, model: str, provider: str,

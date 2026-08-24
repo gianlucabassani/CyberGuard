@@ -260,7 +260,8 @@ def build_server(cfg: GatewayConfig | None = None, context: GatewayContext | Non
                            path: str | None = None, param: str | None = None,
                            payload: str | None = None, oast_token: str | None = None,
                            poc: str | None = None,
-                           evidence_artifact_digests: list[str] | None = None) -> dict:
+                           evidence_artifact_digests: list[str] | None = None,
+                           transaction_digests: list[str] | None = None) -> dict:
             """Report a discovered vulnerability (the engagement goal). Include the
             `cwe` (e.g. 'CWE-89') and `node` so it can be scored. To have the finding
             PROVEN (not just claimed), also pass the verification inputs: `path` +
@@ -273,6 +274,7 @@ def build_server(cfg: GatewayConfig | None = None, context: GatewayContext | Non
                 evidence=evidence, path=path, param=param, payload=payload,
                 oast_token=oast_token, poc=poc,
                 evidence_artifact_digests=evidence_artifact_digests,
+                transaction_digests=transaction_digests,
             )
 
     elif stance is Stance.defender:

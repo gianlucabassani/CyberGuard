@@ -131,6 +131,12 @@ new content-addressed transaction whose manifest links to its parent via
 the arena to be active and carry the same binding/scope/rate-limit checks as
 a direct drive; unknown digests are 404, malformed ones 422.
 
+Findings accept `transaction_digests` alongside `evidence_artifact_digests`
+(R1 slice 6): each digest is verified against this arena's transaction store
+at submission time and recorded on the finding as a reference — method, path,
+node, status, byte size, and replay linkage. The agent's MCP
+`report_finding` accepts the same field.
+
 ### Health Check
 
 `GET /health` — unauthenticated liveness probe, returns `{"status": "ok"}`.

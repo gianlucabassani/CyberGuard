@@ -463,6 +463,53 @@ def test_unbound_agent_cannot_replay_http_transactions(operator, agent):
     assert "not bound" in r.text
 
 
+def test_finding_attaches_verified_http_transactions(operator, agent):
+    import http_transactions
+
+    outputs = {
+        "node_victim_name": "nv-victim",
+        "node_victim_private_ip": "172.30.0.2",
+        "node_victim_ports": {"80": "49000"},
+    }
+    _active_arena(operator.db, "bind-http-attach", outputs)
+    operator.post(
+        "/arenas/bind-http-attach/bindings",
+        json={"agent_name": "binder-agent", "stance": "attacker"},
+    )
+    stored = http_transactions.record(
+        "bind-http-attach",
+        request={"node": "victim", "method": "GET", "path": "/login",
+                 "params": {"u": "x"}, "headers": {}, "body": None},
+        response={"status": 200, "reason": "OK", "http_version": "HTTP/1.1",
+                  "headers": {}, "header_count": 0, "redirect_location": None,
+                  "body": "pwned", "body_bytes": 5,
+                  "body_sha256": "sha256:" + "f" * 64, "truncated": False},
+        actor="binder-agent",
+    )
+
+    reported = agent.post(
+        "/arenas/bind-http-attach/findings",
+        json={"title": "SQL injection in login", "cwe": "CWE-89",
+              "node": "victim", "transaction_digests": [stored["digest"]]},
+    )
+    assert reported.status_code == 200, reported.text
+    event = operator.db.list_events("bind-http-attach", types=("finding",))[0]
+    refs = event["payload"]["http_transactions"]
+    assert len(refs) == 1
+    assert refs[0]["digest"] == stored["digest"]
+    assert refs[0]["kind"] == "http_transaction"
+    assert refs[0]["method"] == "GET" and refs[0]["path"] == "/login"
+    assert refs[0]["status"] == 200
+
+    bogus = agent.post(
+        "/arenas/bind-http-attach/findings",
+        json={"title": "not evidence",
+              "transaction_digests": ["sha256:" + "0" * 64]},
+    )
+    assert bogus.status_code == 422
+    assert "invalid http transaction" in bogus.text
+
+
 def test_transactions_of_unknown_arena_are_404(operator, agent):
     assert agent.get("/arenas/never-existed/http/transactions").status_code == 404
 

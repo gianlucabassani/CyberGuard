@@ -4259,6 +4259,9 @@ class FindingRequest(BaseModel):
     payload: str | None = Field(default=None, max_length=2048)
     oast_token: str | None = Field(default=None, max_length=128)
     evidence_artifact_digests: list[str] = Field(default_factory=list, max_length=10)
+    # R1 slice 6: content-addressed HTTP transaction records attachable as
+    # evidence — verified against this arena's store at submission time.
+    transaction_digests: list[str] = Field(default_factory=list, max_length=10)
 
 
 @app.post("/arenas/{instance_id}/findings")
@@ -4316,6 +4319,26 @@ def _record_finding(instance_id, record, req: "FindingRequest", *, actor: str,
             for key in ("digest", "kind", "media_type", "bytes", "node", "path")
         })
 
+    transaction_refs = []
+    for digest in req.transaction_digests:
+        try:
+            tx_manifest, tx_envelope = http_transactions.get(instance_id, digest)
+        except http_transactions.HttpTransactionError as exc:
+            raise HTTPException(
+                status_code=422, detail=f"invalid http transaction {digest!r}"
+            ) from exc
+        tx_request = tx_envelope.get("request") or {}
+        transaction_refs.append({
+            "digest": digest,
+            "kind": "http_transaction",
+            "node": tx_request.get("node"),
+            "method": tx_request.get("method"),
+            "path": tx_request.get("path"),
+            "status": (tx_envelope.get("response") or {}).get("status"),
+            "bytes": tx_manifest.get("bytes"),
+            "replay_of": tx_manifest.get("replay_of"),
+        })
+
     finding_id = uuid.uuid4().hex[:12]
     db.record_event(
         instance_id, "finding",
@@ -4329,6 +4352,7 @@ def _record_finding(instance_id, record, req: "FindingRequest", *, actor: str,
             # verify — agent-visible, surfaced next to the confirm/refute controls.
             "poc": (req.poc or "")[:8192] or None,
             "evidence_artifacts": artifact_refs,
+            "http_transactions": transaction_refs,
             # Ground-truth match + verification — operator-only (attacker stance
             # can't read events); surfaced via /score and the defender stance.
             "matched_vuln_id": matched_id,

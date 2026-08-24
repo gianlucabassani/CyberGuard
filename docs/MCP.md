@@ -85,6 +85,8 @@ artifact and returns the exact patch plus its digest. Pass explicitly selected
 regular UTF-8 paths in `include_untracked_paths` when their contents are needed.
 The digest can then be supplied to `report_finding` through
 `evidence_artifact_digests`, binding reproducible source evidence to the finding.
+The same field accepts HTTP transaction digests via `transaction_digests` —
+the digests returned by `http_request` / `replay_http_transaction`.
 
 ### File transfer
 

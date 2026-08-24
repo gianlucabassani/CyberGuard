@@ -1403,3 +1403,124 @@ def test_build_custom_posts_multiple_attackers(client, monkeypatch):
     assert captured["json"]["engagement_purpose"] == "calibration"
     assert captured["json"]["participant_mode"] == "mixed"
     assert captured["json"]["engagement_time_box_seconds"] == 7200
+
+
+def _arena_page_client(client, monkeypatch, *, outputs, tx_total=0):
+    """Fake orchestrator for one arena page render (HTTP tab checks)."""
+    import app as webui_module
+
+    class _FakeResp:
+        def __init__(self, payload, status=200):
+            self._payload, self.status_code = payload, status
+
+        def json(self):
+            return self._payload
+
+    state = {"status": "active", "user_id": "web-review",
+             "scenario": "container_web_pentest", "outputs": outputs,
+             "created_at": "2026-08-24 10:00:00", "expires_at": None}
+
+    def fake_get(url, **kwargs):
+        if "/status/arena-1" in url:
+            return _FakeResp(state)
+        if "/http/transactions" in url:
+            return _FakeResp({"total": tx_total, "transactions": []})
+        return _FakeResp({})
+
+    monkeypatch.setattr(webui_module.requests, "get", fake_get)
+    _login(client)
+
+
+_WEB_OUTPUTS = {
+    "node_victim_name": "nv-victim",
+    "node_victim_private_ip": "172.30.0.2",
+    "node_victim_ports": {"80": "32768"},
+    "node_attacker_name": "nv-attacker",
+    "node_attacker_private_ip": "172.30.0.3",
+    "node_attacker_ssh_command": "docker exec nv-attacker sh",
+}
+
+
+def test_arena_http_tab_renders_where_a_web_target_exists(client, monkeypatch):
+    _arena_page_client(client, monkeypatch, outputs=_WEB_OUTPUTS, tx_total=3)
+    html = client.get("/arena/arena-1").data.decode()
+    assert 'data-tab="http"' in html
+    assert 'id="wspanel-http"' in html
+    assert ">3</span>" in html          # tab count badge
+
+
+def test_arena_http_tab_hidden_without_web_target_or_transactions(
+    client, monkeypatch,
+):
+    _arena_page_client(
+        client, monkeypatch,
+        outputs={"node_attacker_name": "nv-a",
+                 "node_attacker_ssh_command": "docker exec nv-a sh"},
+        tx_total=0,
+    )
+    html = client.get("/arena/arena-1").data.decode()
+    assert 'id="wstab-http"' not in html
+
+
+def test_http_transaction_proxies_forward_to_the_orchestrator(
+    client, monkeypatch,
+):
+    import app as webui_module
+
+    class _FakeResp:
+        status_code = 200
+
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    seen_get, seen_post = [], []
+
+    def fake_get(url, **kwargs):
+        seen_get.append(url)
+        if "/http/transactions" in url:
+            if "/sha256%3A" in url and not url.endswith("/replay"):
+                return _FakeResp({"manifest": {"digest": "x"}, "transaction": {}})
+            return _FakeResp({"total": 0, "transactions": []})
+        return _FakeResp({})
+
+    def fake_post(url, **kwargs):
+        seen_post.append((url, kwargs.get("json")))
+        return _FakeResp({"success": True})
+
+    monkeypatch.setattr(webui_module.requests, "get", fake_get)
+    monkeypatch.setattr(webui_module.requests, "post", fake_post)
+    _login(client)
+
+    listed = client.get("/api/arenas/arena-1/http/transactions?limit=5&offset=2")
+    assert listed.status_code == 200
+    assert any(url.endswith("/arenas/arena-1/http/transactions?limit=5&offset=2")
+               for url in seen_get)
+
+    fetched = client.get(
+        "/api/arenas/arena-1/http/transactions/sha256%3A" + "a" * 64
+    )
+    assert fetched.status_code == 200
+    assert fetched.get_json()["manifest"]["digest"] == "x"
+
+    token = _csrf_token(client, "/")
+    driven = client.post(
+        "/api/arenas/arena-1/http/request",
+        json={"node": "victim", "path": "/", "method": "GET"},
+        headers={"X-CSRFToken": token},
+    )
+    assert driven.status_code == 200
+    assert seen_post[-1][0].endswith("/arenas/arena-1/http/request")
+    assert seen_post[-1][1]["node"] == "victim"
+
+    replayed = client.post(
+        "/api/arenas/arena-1/http/transactions/"
+        + "sha256%3A" + "a" * 64 + "/replay",
+        json={"params": {"q": "1"}},
+        headers={"X-CSRFToken": token},
+    )
+    assert replayed.status_code == 200
+    assert seen_post[-1][0].endswith("/replay")
+    assert seen_post[-1][1] == {"params": {"q": "1"}}
