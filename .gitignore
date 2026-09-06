@@ -47,3 +47,4 @@ htmlcov/
 # --- AI AGENT WORKSPACE (local working notes, never commit) ---
 /AGENT.md
 /.agent/
+/.lab.yaml
